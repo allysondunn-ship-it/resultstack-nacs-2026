@@ -1,20 +1,25 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { computePillStatus, PILL_CONFIG, STATUS_LABELS, formatDate, formatCurrency } from '@/lib/utils'
-import { WORKSTREAM_MAP, BUCKET_MAP, BUCKETS } from '@/data/workstreams'
+import { BUCKET_MAP, BUCKETS } from '@/data/workstreams'
 import StatusPill from './StatusPill'
 import type { Deadline, StatusValue, PillStatus } from '@/types'
-
-const ALL_OWNERS = ['Ally', 'Ben', 'Chas', 'Adam', 'DeWayne', 'Ray', 'John', 'Mickey']
 
 export default function DeadlinesTab() {
   const [deadlines, setDeadlines] = useState<Deadline[]>([])
   const [loading, setLoading] = useState(true)
+  const [owners, setOwners] = useState<string[]>([])
   const [editingOwner, setEditingOwner] = useState<string | null>(null)
   const [editingStatus, setEditingStatus] = useState<string | null>(null)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
+
+  // Team manager UI
+  const [showTeamManager, setShowTeamManager] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [addingName, setAddingName] = useState(false)
+  const newNameInputRef = useRef<HTMLInputElement>(null)
 
   // Filters
   const [filterOwner, setFilterOwner] = useState('')
@@ -33,24 +38,60 @@ export default function DeadlinesTab() {
     setLoading(false)
   }, [])
 
+  const fetchOwners = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('team_members')
+      .select('name')
+      .order('sort_order', { ascending: true })
+    if (!error && data) setOwners(data.map(r => r.name))
+  }, [])
+
   useEffect(() => {
     fetchDeadlines()
+    fetchOwners()
 
-    const channel = supabase
+    const deadlineChannel = supabase
       .channel('deadlines-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'deadlines' }, () => {
-        fetchDeadlines()
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'deadlines' }, fetchDeadlines)
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
-  }, [fetchDeadlines])
+    const teamChannel = supabase
+      .channel('team-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, fetchOwners)
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(deadlineChannel)
+      supabase.removeChannel(teamChannel)
+    }
+  }, [fetchDeadlines, fetchOwners])
 
   const updateField = async (id: string, field: 'owner' | 'status', value: string) => {
     await supabase.from('deadlines').update({ [field]: value, updated_at: new Date().toISOString() }).eq('id', id)
     setDeadlines(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d))
     if (field === 'owner') setEditingOwner(null)
     if (field === 'status') setEditingStatus(null)
+  }
+
+  const addOwner = async () => {
+    const name = newName.trim()
+    if (!name) return
+    setAddingName(true)
+    const maxOrder = owners.length
+    const { error } = await supabase
+      .from('team_members')
+      .insert({ name, sort_order: maxOrder + 1 })
+    if (!error) {
+      setNewName('')
+      await fetchOwners()
+    }
+    setAddingName(false)
+    newNameInputRef.current?.focus()
+  }
+
+  const removeOwner = async (name: string) => {
+    await supabase.from('team_members').delete().eq('name', name)
+    await fetchOwners()
   }
 
   const filtered = useMemo(() => {
@@ -83,6 +124,18 @@ export default function DeadlinesTab() {
     })
   }
 
+  const OwnerSelect = ({ id, currentOwner, mobile }: { id: string; currentOwner: string | null; mobile?: boolean }) => (
+    <select
+      autoFocus
+      className={`border border-slate-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-slate-400 bg-white ${mobile ? 'text-xs' : 'text-sm'}`}
+      defaultValue={currentOwner || ''}
+      onChange={e => updateField(id, 'owner', e.target.value)}
+      onBlur={() => setEditingOwner(null)}
+    >
+      <option value="">— unassigned —</option>
+      {owners.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  )
 
   if (loading) {
     return (
@@ -105,68 +158,119 @@ export default function DeadlinesTab() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-2 items-center bg-white border border-slate-200 rounded-lg px-4 py-3">
-        <select
-          className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
-          value={filterOwner}
-          onChange={e => setFilterOwner(e.target.value)}
-        >
-          <option value="">All owners</option>
-          <option value="__unassigned">Unassigned</option>
-          {ALL_OWNERS.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-
-        <select
-          className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
-          value={filterStatus}
-          onChange={e => setFilterStatus(e.target.value)}
-        >
-          <option value="">All statuses</option>
-          {(Object.entries(STATUS_LABELS) as [StatusValue, string][]).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-
-        <select
-          className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
-          value={filterBucket}
-          onChange={e => { setFilterBucket(e.target.value); setFilterWorkstream('') }}
-        >
-          <option value="">All buckets</option>
-          {Object.entries(BUCKET_MAP).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-
-        <select
-          className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
-          value={filterWorkstream}
-          onChange={e => setFilterWorkstream(e.target.value)}
-        >
-          <option value="">All workstreams</option>
-          {BUCKETS.flatMap(b => b.workstreams).map(w => (
-            <option key={w.id} value={w.id}>W{w.id} {w.name}</option>
-          ))}
-        </select>
-
-        <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={criticalOnly}
-            onChange={e => setCriticalOnly(e.target.checked)}
-            className="rounded border-slate-300 text-red-500 focus:ring-red-400"
-          />
-          Critical only
-        </label>
-
-        {(filterOwner || filterStatus || filterWorkstream || filterBucket || criticalOnly) && (
-          <button
-            className="text-xs text-slate-400 hover:text-slate-700 underline"
-            onClick={() => { setFilterOwner(''); setFilterStatus(''); setFilterWorkstream(''); setFilterBucket(''); setCriticalOnly(false) }}
+      <div className="bg-white border border-slate-200 rounded-lg px-4 py-3 space-y-3">
+        <div className="flex flex-wrap gap-2 items-center">
+          <select
+            className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+            value={filterOwner}
+            onChange={e => setFilterOwner(e.target.value)}
           >
-            Clear filters
-          </button>
-        )}
+            <option value="">All owners</option>
+            <option value="__unassigned">Unassigned</option>
+            {owners.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
 
-        <span className="ml-auto text-xs text-slate-400">{filtered.length} of {deadlines.length}</span>
+          <select
+            className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+          >
+            <option value="">All statuses</option>
+            {(Object.entries(STATUS_LABELS) as [StatusValue, string][]).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+
+          <select
+            className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+            value={filterBucket}
+            onChange={e => { setFilterBucket(e.target.value); setFilterWorkstream('') }}
+          >
+            <option value="">All buckets</option>
+            {Object.entries(BUCKET_MAP).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+
+          <select
+            className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+            value={filterWorkstream}
+            onChange={e => setFilterWorkstream(e.target.value)}
+          >
+            <option value="">All workstreams</option>
+            {BUCKETS.flatMap(b => b.workstreams).map(w => (
+              <option key={w.id} value={w.id}>W{w.id} {w.name}</option>
+            ))}
+          </select>
+
+          <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={criticalOnly}
+              onChange={e => setCriticalOnly(e.target.checked)}
+              className="rounded border-slate-300 text-red-500 focus:ring-red-400"
+            />
+            Critical only
+          </label>
+
+          {(filterOwner || filterStatus || filterWorkstream || filterBucket || criticalOnly) && (
+            <button
+              className="text-xs text-slate-400 hover:text-slate-700 underline"
+              onClick={() => { setFilterOwner(''); setFilterStatus(''); setFilterWorkstream(''); setFilterBucket(''); setCriticalOnly(false) }}
+            >
+              Clear filters
+            </button>
+          )}
+
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs text-slate-400">{filtered.length} of {deadlines.length}</span>
+            <button
+              className={`text-xs px-2.5 py-1.5 rounded border transition-colors ${showTeamManager ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500 hover:border-slate-400 hover:text-slate-700'}`}
+              onClick={() => setShowTeamManager(v => !v)}
+            >
+              Manage team
+            </button>
+          </div>
+        </div>
+
+        {/* Team manager — inline, only when open */}
+        {showTeamManager && (
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-xs text-slate-400 mb-2">Owner options shown in all dropdowns. Changes sync for everyone immediately.</p>
+            <div className="flex flex-wrap gap-2 items-center">
+              {owners.map(name => (
+                <span key={name} className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-sm px-2.5 py-1 rounded-full">
+                  {name}
+                  <button
+                    onClick={() => removeOwner(name)}
+                    className="text-slate-400 hover:text-red-500 transition-colors ml-0.5 text-xs leading-none"
+                    title={`Remove ${name}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <form
+                onSubmit={e => { e.preventDefault(); addOwner() }}
+                className="flex items-center gap-1.5"
+              >
+                <input
+                  ref={newNameInputRef}
+                  type="text"
+                  placeholder="Add name…"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  className="text-sm border border-slate-200 rounded px-2 py-1 w-28 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                <button
+                  type="submit"
+                  disabled={!newName.trim() || addingName}
+                  className="text-sm bg-slate-800 text-white px-2.5 py-1 rounded hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Add
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Table — desktop */}
@@ -211,18 +315,7 @@ export default function DeadlinesTab() {
                   </td>
                   <td className="px-3 py-3">
                     {editingOwner === d.id ? (
-                      <div className="flex items-center gap-1">
-                        <select
-                          autoFocus
-                          className="text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-slate-400 bg-white"
-                          defaultValue={d.owner || ''}
-                          onChange={e => updateField(d.id, 'owner', e.target.value)}
-                          onBlur={() => setEditingOwner(null)}
-                        >
-                          <option value="">— unassigned —</option>
-                          {ALL_OWNERS.map(o => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      </div>
+                      <OwnerSelect id={d.id} currentOwner={d.owner} />
                     ) : (
                       <button
                         className="text-slate-700 hover:text-slate-900 hover:underline cursor-pointer text-left"
@@ -304,16 +397,7 @@ export default function DeadlinesTab() {
               <div className="flex items-center gap-1">
                 <span className="text-slate-400 text-xs">Owner:</span>
                 {editingOwner === d.id ? (
-                  <select
-                    autoFocus
-                    className="text-sm border border-slate-300 rounded px-1 py-0.5 focus:outline-none"
-                    defaultValue={d.owner || ''}
-                    onChange={e => updateField(d.id, 'owner', e.target.value)}
-                    onBlur={() => setEditingOwner(null)}
-                  >
-                    <option value="">— unassigned —</option>
-                    {ALL_OWNERS.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
+                  <OwnerSelect id={d.id} currentOwner={d.owner} mobile />
                 ) : (
                   <button className="text-slate-700 hover:underline text-xs" onClick={() => setEditingOwner(d.id)}>
                     {d.owner || <span className="text-slate-300 italic">assign</span>}
