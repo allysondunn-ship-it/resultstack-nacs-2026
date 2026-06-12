@@ -7,7 +7,7 @@ import { formatDate } from '@/lib/utils'
 import StatusPill from './StatusPill'
 import { BUCKET_COLORS, BUCKETS } from '@/data/workstreams'
 
-// ── Timeline constants (module-level, never change) ────────────────────────────
+// ── Timeline constants ────────────────────────────────────────────────────────
 const GANTT_START = new Date('2026-03-30T00:00:00')
 const TODAY       = new Date('2026-06-12T00:00:00')
 const WEEK_W      = 44
