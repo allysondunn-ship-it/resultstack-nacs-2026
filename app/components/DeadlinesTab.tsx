@@ -66,6 +66,12 @@ export default function DeadlinesTab() {
     }
   }, [fetchDeadlines, fetchOwners])
 
+  const deleteDeadline = async (id: string, item: string) => {
+    if (!confirm(`Delete "${item}"? This cannot be undone.`)) return
+    await supabase.from('deadlines').delete().eq('id', id)
+    setDeadlines(prev => prev.filter(d => d.id !== id))
+  }
+
   const updateField = async (id: string, field: 'owner' | 'status', value: string) => {
     await supabase.from('deadlines').update({ [field]: value, updated_at: new Date().toISOString() }).eq('id', id)
     setDeadlines(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d))
@@ -353,15 +359,29 @@ export default function DeadlinesTab() {
                     )}
                   </td>
                   <td className="px-3 py-3">
-                    {d.notes && (
+                    <div className="flex items-center gap-2">
+                      {d.notes && (
+                        <button
+                          onClick={() => toggleNotes(d.id)}
+                          className="text-slate-400 hover:text-slate-700"
+                          title={expandedNotes.has(d.id) ? 'Hide notes' : 'Show notes'}
+                        >
+                          {expandedNotes.has(d.id) ? '▲' : '▼'}
+                        </button>
+                      )}
                       <button
-                        onClick={() => toggleNotes(d.id)}
-                        className="text-slate-400 hover:text-slate-700"
-                        title={expandedNotes.has(d.id) ? 'Hide notes' : 'Show notes'}
+                        onClick={() => deleteDeadline(d.id, d.item)}
+                        className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                        title="Delete row"
                       >
-                        {expandedNotes.has(d.id) ? '▲' : '▼'}
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                          <path d="M10 11v6M14 11v6" />
+                          <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+                        </svg>
                       </button>
-                    )}
+                    </div>
                   </td>
                 </tr>
                 {d.notes && expandedNotes.has(d.id) && (
@@ -429,6 +449,20 @@ export default function DeadlinesTab() {
             {d.notes && (
               <p className="text-xs text-slate-500 italic border-t border-slate-100 pt-2">{d.notes}</p>
             )}
+            <div className="flex justify-end border-t border-slate-100 pt-2">
+              <button
+                onClick={() => deleteDeadline(d.id, d.item)}
+                className="text-slate-300 hover:text-red-500 transition-colors"
+                title="Delete row"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                  <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+                </svg>
+              </button>
+            </div>
           </div>
         ))}
         {filtered.length === 0 && (
