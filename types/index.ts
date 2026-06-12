@@ -3,6 +3,7 @@ export type StatusValue = 'not_started' | 'in_progress' | 'done' | 'na'
 export interface Deadline {
   id: string
   due_date: string | null
+  approval_date: string | null
   item: string
   workstream: number
   bucket: number
@@ -11,7 +12,18 @@ export interface Deadline {
   status: StatusValue
   is_critical: boolean
   notes: string | null
+  category: string | null
   updated_at: string
+}
+
+export interface Subtask {
+  id: string
+  deadline_id: string
+  title: string
+  done: boolean
+  owner: string | null
+  sort_order: number
+  created_at: string
 }
 
 export interface Decision {
@@ -24,22 +36,6 @@ export interface Decision {
 }
 
 export type PillStatus = 'done' | 'na' | 'passed' | 'urgent' | 'soon' | 'upcoming'
-
-export interface WorkstreamItem {
-  id: string
-  workstream_id: number
-  text: string
-  sort_order: number
-  created_at: string
-}
-
-export interface WorkstreamSubitem {
-  id: string
-  item_id: string
-  text: string
-  sort_order: number
-  created_at: string
-}
 
 export interface Workstream {
   id: number
