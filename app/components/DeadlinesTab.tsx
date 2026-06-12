@@ -382,7 +382,7 @@ export default function DeadlinesTab() {
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wide select-none">
               <th className="px-3 py-2.5 w-5"></th>
-              {([ ['status','Status'], ['due_date','Due Date'], ['approval_date','Appr. Date'], ['item','Item'], ] as [SortField, string][]).map(([f, label]) => (
+              {([ ['status','Status'], ['approval_date','Appr. Date'], ['due_date','Due Date'], ['item','Item'], ] as [SortField, string][]).map(([f, label]) => (
                 <th key={f} className="text-left px-3 py-2.5">
                   <button className="flex items-center gap-1 hover:text-slate-800 transition-colors" onClick={() => setSort(f)}>
                     {label}
@@ -434,21 +434,6 @@ export default function DeadlinesTab() {
                       )}
                     </td>
 
-                    {/* Due date */}
-                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
-                      {editingCell?.id === d.id && editingCell.field === 'due_date' ? (
-                        <input autoFocus type="date"
-                          className="text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                          defaultValue={d.due_date ?? ''}
-                          onChange={e => commitEdit(d.id, 'due_date', e.target.value)}
-                          onBlur={() => setEditingCell(null)} />
-                      ) : (
-                        <button className="hover:underline text-left" onClick={() => setEditingCell({ id: d.id, field: 'due_date' })} title="Click to edit">
-                          {formatDate(d.due_date)}
-                        </button>
-                      )}
-                    </td>
-
                     {/* Approval date */}
                     <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
                       {editingCell?.id === d.id && editingCell.field === 'approval_date' ? (
@@ -460,6 +445,21 @@ export default function DeadlinesTab() {
                       ) : (
                         <button className="hover:underline text-left" onClick={() => setEditingCell({ id: d.id, field: 'approval_date' })} title="Click to edit">
                           {formatDate(d.approval_date)}
+                        </button>
+                      )}
+                    </td>
+
+                    {/* Due date */}
+                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                      {editingCell?.id === d.id && editingCell.field === 'due_date' ? (
+                        <input autoFocus type="date"
+                          className="text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          defaultValue={d.due_date ?? ''}
+                          onChange={e => commitEdit(d.id, 'due_date', e.target.value)}
+                          onBlur={() => setEditingCell(null)} />
+                      ) : (
+                        <button className="hover:underline text-left" onClick={() => setEditingCell({ id: d.id, field: 'due_date' })} title="Click to edit">
+                          {formatDate(d.due_date)}
                         </button>
                       )}
                     </td>
