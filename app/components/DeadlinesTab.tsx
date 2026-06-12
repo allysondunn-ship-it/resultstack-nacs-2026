@@ -7,7 +7,7 @@ import { WORKSTREAM_MAP, BUCKET_MAP, BUCKETS } from '@/data/workstreams'
 import StatusPill from './StatusPill'
 import type { Deadline, StatusValue, PillStatus } from '@/types'
 
-const ALL_OWNERS = ['Ally', 'Ben', 'Jay', 'John', 'Ally + Ben', 'Ally + Ben + John', 'Ally + Jay', 'Ally + tech', 'Ally + Ben/Jay', 'Team']
+const ALL_OWNERS = ['Ally', 'Ben', 'Chas', 'Adam', 'DeWayne', 'Ray', 'John', 'Mickey']
 
 export default function DeadlinesTab() {
   const [deadlines, setDeadlines] = useState<Deadline[]>([])
@@ -83,10 +83,6 @@ export default function DeadlinesTab() {
     })
   }
 
-  const allOwners = useMemo(() => {
-    const fromData = deadlines.map(d => d.owner).filter(Boolean) as string[]
-    return Array.from(new Set([...ALL_OWNERS, ...fromData])).sort()
-  }, [deadlines])
 
   if (loading) {
     return (
@@ -117,7 +113,7 @@ export default function DeadlinesTab() {
         >
           <option value="">All owners</option>
           <option value="__unassigned">Unassigned</option>
-          {allOwners.map(o => <option key={o} value={o}>{o}</option>)}
+          {ALL_OWNERS.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
 
         <select
@@ -224,7 +220,7 @@ export default function DeadlinesTab() {
                           onBlur={() => setEditingOwner(null)}
                         >
                           <option value="">— unassigned —</option>
-                          {allOwners.map(o => <option key={o} value={o}>{o}</option>)}
+                          {ALL_OWNERS.map(o => <option key={o} value={o}>{o}</option>)}
                         </select>
                       </div>
                     ) : (
@@ -316,7 +312,7 @@ export default function DeadlinesTab() {
                     onBlur={() => setEditingOwner(null)}
                   >
                     <option value="">— unassigned —</option>
-                    {allOwners.map(o => <option key={o} value={o}>{o}</option>)}
+                    {ALL_OWNERS.map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
                 ) : (
                   <button className="text-slate-700 hover:underline text-xs" onClick={() => setEditingOwner(d.id)}>
