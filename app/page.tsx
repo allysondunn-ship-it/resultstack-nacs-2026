@@ -5,12 +5,14 @@ import dynamic from 'next/dynamic'
 
 const DeadlinesTab = dynamic(() => import('./components/DeadlinesTab'), { ssr: false })
 const WorkstreamsTab = dynamic(() => import('./components/WorkstreamsTab'), { ssr: false })
+const GanttTab = dynamic(() => import('./components/GanttTab'), { ssr: false })
 const DecisionsTab = dynamic(() => import('./components/DecisionsTab'), { ssr: false })
 const ReferenceTab = dynamic(() => import('./components/ReferenceTab'), { ssr: false })
 
 const TABS = [
   { id: 'deadlines', label: 'Deadlines' },
   { id: 'workstreams', label: 'Workstreams' },
+  { id: 'gantt', label: 'Gantt' },
   { id: 'decisions', label: 'Decisions' },
   { id: 'reference', label: 'Reference' },
 ] as const
@@ -73,6 +75,7 @@ export default function Home() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === 'deadlines' && <DeadlinesTab />}
         {activeTab === 'workstreams' && <WorkstreamsTab />}
+        {activeTab === 'gantt' && <GanttTab />}
         {activeTab === 'decisions' && <DecisionsTab />}
         {activeTab === 'reference' && <ReferenceTab />}
       </main>
