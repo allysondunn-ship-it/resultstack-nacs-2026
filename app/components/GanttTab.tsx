@@ -1,18 +1,19 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import { useDeadlines } from '@/lib/useDeadlines'
 import { formatDate } from '@/lib/utils'
 import StatusPill from './StatusPill'
-import { BUCKET_COLORS } from '@/data/workstreams'
-import type { Deadline } from '@/types'
+import { BUCKET_COLORS, BUCKETS } from '@/data/workstreams'
 
-// ── Timeline config ────────────────────────────────────────────────────────────
+// ── Timeline constants (module-level, never change) ────────────────────────────
 const GANTT_START = new Date('2026-03-30T00:00:00')
-const TODAY = new Date('2026-06-12T00:00:00')
-const WEEK_W = 44       // px per week column
-const TOTAL_WEEKS = 31  // Mar 30 → Oct 26
+const TODAY       = new Date('2026-06-12T00:00:00')
+const WEEK_W      = 44
+const TOTAL_WEEKS = 31
+const MS_PER_WEEK = 1000 * 60 * 60 * 24 * 7
+const ganttW      = TOTAL_WEEKS * WEEK_W
 
 const WEEKS: Date[] = Array.from({ length: TOTAL_WEEKS }, (_, i) => {
   const d = new Date(GANTT_START)
@@ -20,82 +21,46 @@ const WEEKS: Date[] = Array.from({ length: TOTAL_WEEKS }, (_, i) => {
   return d
 })
 
-const MS_PER_WEEK = 1000 * 60 * 60 * 24 * 7
-const ganttW = TOTAL_WEEKS * WEEK_W
-
-function dateToX(dateStr: string | null): number | null {
-  if (!dateStr) return null
-  const d = new Date(dateStr + 'T00:00:00')
-  return ((d.getTime() - GANTT_START.getTime()) / MS_PER_WEEK) * WEEK_W
-}
-
-const todayX = ((TODAY.getTime() - GANTT_START.getTime()) / MS_PER_WEEK) * WEEK_W
+const todayX       = ((TODAY.getTime() - GANTT_START.getTime()) / MS_PER_WEEK) * WEEK_W
 const todayWeekIdx = Math.floor((TODAY.getTime() - GANTT_START.getTime()) / MS_PER_WEEK)
 
-// ── Left frozen columns ────────────────────────────────────────────────────────
-const LEFT_COLS = [
-  { key: 'flag',   label: '',           width: 28  },
-  { key: 'item',   label: 'Item',       width: 210 },
-  { key: 'owner',  label: 'Owner',      width: 85  },
-  { key: 'appr',   label: 'Appr. Date', width: 85  },
-  { key: 'due',    label: 'Due Date',   width: 85  },
-  { key: 'status', label: 'Status',     width: 90  },
-]
-
-const LEFT_OFFSETS: number[] = LEFT_COLS.reduce<number[]>((acc, _, i) => {
-  acc.push(i === 0 ? 0 : acc[i - 1] + LEFT_COLS[i - 1].width)
-  return acc
-}, [])
-
-const LEFT_TOTAL = LEFT_COLS.reduce((s, c) => s + c.width, 0)
-
-// ── Category colours ───────────────────────────────────────────────────────────
-type BarCat = 'marketing' | 'booth' | 'admin' | 'other'
-
-const CAT: Record<BarCat, { color: string; label: string }> = {
-  marketing: { color: '#3b82f6', label: 'Marketing & Advertising' },
-  booth:     { color: '#f59e0b', label: 'Booth & Setup' },
-  admin:     { color: '#8b5cf6', label: 'Admin' },
-  other:     { color: '#10b981', label: 'Other' },
+function dateToX(s: string | null): number | null {
+  if (!s) return null
+  return ((new Date(s + 'T00:00:00').getTime() - GANTT_START.getTime()) / MS_PER_WEEK) * WEEK_W
 }
 
-function getCategory(d: Deadline): BarCat {
-  const cat = (d.category ?? '').toLowerCase()
-  const ws = d.workstream
-  if (cat.includes('market') || cat.includes('advertis') || [4, 5, 6, 7].includes(ws)) return 'marketing'
-  if (cat.includes('booth') || cat.includes('setup') || cat.includes('freeman') || [1, 2].includes(ws)) return 'booth'
-  if (cat.includes('admin') || cat.includes('budget') || cat.includes('payment') || [3, 12].includes(ws)) return 'admin'
-  return 'other'
+function weekLabel(d: Date) { return `${d.getMonth() + 1}/${d.getDate()}` }
+
+// ── Type display (matches DeadlinesTab) ───────────────────────────────────────
+const TYPE_SHORT: Record<string, string> = {
+  'Vendor Deadline': 'Vendor',
+  'Internal Action': 'Internal',
+  'Milestone':       'Milestone',
+}
+const TYPE_COLOR: Record<string, string> = {
+  'Vendor Deadline': '#b45309',
+  'Internal Action': '#0369a1',
+  'Milestone':       '#047857',
 }
 
-// ── Style helpers ──────────────────────────────────────────────────────────────
-function stickyHead(left: number, isLastLeft: boolean): CSSProperties {
-  return {
-    position: 'sticky',
-    left,
-    top: 0,
-    zIndex: 30,
-    background: '#f8fafc',
-    borderBottom: '2px solid #e2e8f0',
-    borderRight: isLastLeft ? '2px solid #cbd5e1' : '1px solid #e2e8f0',
-  }
+// ── Fixed (non-resizable) flag column ─────────────────────────────────────────
+const FLAG_W = 28
+
+// ── Resizable column definitions ──────────────────────────────────────────────
+type ResizableKey = 'item' | 'type' | 'workstream' | 'owner' | 'appr' | 'due' | 'status'
+
+const COL_LABELS: Record<ResizableKey, string> = {
+  item: 'Item', type: 'Type', workstream: 'WS',
+  owner: 'Owner', appr: 'Appr. Date', due: 'Due Date', status: 'Status',
+}
+const COL_ORDER: ResizableKey[] = ['item', 'type', 'workstream', 'owner', 'appr', 'due', 'status']
+
+const DEFAULT_WIDTHS: Record<ResizableKey, number> = {
+  item: 200, type: 80, workstream: 56, owner: 80,
+  appr: 85, due: 85, status: 90,
 }
 
-function stickyCell(left: number, isLastLeft: boolean, bg: string): CSSProperties {
-  return {
-    position: 'sticky',
-    left,
-    zIndex: 10,
-    background: bg,
-    borderBottom: '1px solid #f1f5f9',
-    borderRight: isLastLeft ? '2px solid #cbd5e1' : '1px solid #e2e8f0',
-  }
-}
-
-function weekLabel(d: Date): string {
-  return `${d.getMonth() + 1}/${d.getDate()}`
-}
-
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function BucketDot({ bucket }: { bucket: number }) {
   return (
     <span
@@ -105,10 +70,40 @@ function BucketDot({ bucket }: { bucket: number }) {
   )
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 export default function GanttTab() {
   const { deadlines, loading } = useDeadlines()
 
+  // ── Resizable column widths ──────────────────────────────────────────────────
+  const [colWidths, setColWidths] = useState<Record<ResizableKey, number>>(DEFAULT_WIDTHS)
+  const colWidthsRef = useRef(colWidths)
+  useEffect(() => { colWidthsRef.current = colWidths }, [colWidths])
+
+  const leftOffsets = useMemo(() => {
+    const offsets: Record<string, number> = { flag: 0 }
+    let cum = FLAG_W
+    COL_ORDER.forEach(key => { offsets[key] = cum; cum += colWidths[key] })
+    return offsets
+  }, [colWidths])
+
+  const leftTotal = FLAG_W + COL_ORDER.reduce((s, k) => s + colWidths[k], 0)
+
+  const startResize = useCallback((e: React.MouseEvent, key: ResizableKey) => {
+    e.preventDefault()
+    const startX     = e.clientX
+    const startWidth = colWidthsRef.current[key]
+    const onMove = (ev: MouseEvent) => {
+      setColWidths(prev => ({ ...prev, [key]: Math.max(44, startWidth + ev.clientX - startX) }))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
+  // ── Data ─────────────────────────────────────────────────────────────────────
   const { rows, undated } = useMemo(() => {
     const sorted = [...deadlines].sort((a, b) => {
       if (!a.due_date && !b.due_date) return a.item.localeCompare(b.item)
@@ -117,7 +112,7 @@ export default function GanttTab() {
       return a.due_date.localeCompare(b.due_date)
     })
     return {
-      rows: sorted.filter(d => d.due_date !== null),
+      rows:    sorted.filter(d => d.due_date !== null),
       undated: sorted.filter(d => d.due_date === null),
     }
   }, [deadlines])
@@ -130,15 +125,30 @@ export default function GanttTab() {
     )
   }
 
+  // ── Inline style factories (use leftOffsets from closure) ─────────────────────
+  const headStyle = (left: number, isLast: boolean): CSSProperties => ({
+    position: 'sticky', left, top: 0, zIndex: 30,
+    background: '#f8fafc',
+    borderBottom: '2px solid #e2e8f0',
+    borderRight: isLast ? '2px solid #cbd5e1' : '1px solid #e2e8f0',
+  })
+
+  const cellStyle = (left: number, isLast: boolean, bg: string): CSSProperties => ({
+    position: 'sticky', left, zIndex: 10, background: bg,
+    borderBottom: '1px solid #f1f5f9',
+    borderRight: isLast ? '2px solid #cbd5e1' : '1px solid #e2e8f0',
+    overflow: 'hidden',
+  })
+
   return (
     <div className="space-y-3">
 
-      {/* Legend */}
+      {/* Legend — 5 buckets */}
       <div className="flex flex-wrap gap-x-5 gap-y-2 items-center bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm text-slate-700">
-        {(Object.entries(CAT) as [BarCat, typeof CAT[BarCat]][]).map(([key, { color, label }]) => (
-          <span key={key} className="flex items-center gap-1.5">
-            <span style={{ display: 'inline-block', width: 28, height: 8, background: color, borderRadius: 4 }} />
-            {label}
+        {BUCKETS.map(b => (
+          <span key={b.id} className="flex items-center gap-1.5">
+            <span style={{ display: 'inline-block', width: 28, height: 8, background: BUCKET_COLORS[b.id], borderRadius: 4 }} />
+            {b.name}
           </span>
         ))}
         <span className="flex items-center gap-1.5 text-slate-500">
@@ -151,7 +161,7 @@ export default function GanttTab() {
         </span>
       </div>
 
-      {/* Date TBD panel — items with no due date can't be plotted */}
+      {/* Date TBD panel */}
       {undated.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
           <div className="px-4 py-2 border-b border-amber-200 flex items-center gap-2">
@@ -183,33 +193,49 @@ export default function GanttTab() {
             borderCollapse: 'separate',
             borderSpacing: 0,
             tableLayout: 'fixed',
-            width: LEFT_TOTAL + ganttW,
+            width: leftTotal + ganttW,
           }}
         >
           <colgroup>
-            {LEFT_COLS.map(c => <col key={c.key} style={{ width: c.width }} />)}
+            <col style={{ width: FLAG_W }} />
+            {COL_ORDER.map(k => <col key={k} style={{ width: colWidths[k] }} />)}
             {WEEKS.map((_, i) => <col key={i} style={{ width: WEEK_W }} />)}
           </colgroup>
 
           {/* ── Header ── */}
           <thead>
             <tr style={{ height: 36 }}>
-              {LEFT_COLS.map((col, i) => (
-                <th
-                  key={col.key}
-                  style={stickyHead(LEFT_OFFSETS[i], i === LEFT_COLS.length - 1)}
-                  className="px-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap"
-                >
-                  {col.label}
-                </th>
-              ))}
+              {/* Flag — fixed, no drag handle */}
+              <th style={headStyle(0, false)} />
+
+              {/* Resizable left columns */}
+              {COL_ORDER.map((key, i) => {
+                const isLast = i === COL_ORDER.length - 1
+                return (
+                  <th
+                    key={key}
+                    style={headStyle(leftOffsets[key], isLast)}
+                    className="px-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap select-none"
+                  >
+                    <span className="block overflow-hidden text-ellipsis">{COL_LABELS[key]}</span>
+                    {/* Drag handle */}
+                    <div
+                      style={{
+                        position: 'absolute', right: 0, top: 0, bottom: 0,
+                        width: 5, cursor: 'col-resize', zIndex: 2,
+                      }}
+                      onMouseDown={e => startResize(e, key)}
+                    />
+                  </th>
+                )
+              })}
+
+              {/* Week headers */}
               {WEEKS.map((week, i) => (
                 <th
                   key={i}
                   style={{
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 20,
+                    position: 'sticky', top: 0, zIndex: 20,
                     background: i === todayWeekIdx ? '#fef2f2' : '#f8fafc',
                     borderBottom: '2px solid #e2e8f0',
                     borderRight: '1px solid #f1f5f9',
@@ -226,23 +252,20 @@ export default function GanttTab() {
           {/* ── Rows ── */}
           <tbody>
             {rows.map(d => {
-              const isPast = d.due_date
-                ? new Date(d.due_date + 'T00:00:00') < TODAY
-                : false
-              const barColor = CAT[getCategory(d)].color
-              const bg = isPast ? '#f8fafc' : 'white'
+              const isPast   = new Date(d.due_date! + 'T00:00:00') < TODAY
+              const barColor = BUCKET_COLORS[d.bucket] ?? '#94a3b8'
+              const bg       = isPast ? '#f8fafc' : 'white'
 
               const x1 = dateToX(d.approval_date)
               const x2 = dateToX(d.due_date)
 
-              // Full bar only when both dates present
               const hasBar = x1 !== null && x2 !== null
-              const barL = hasBar ? Math.max(0, Math.min(x1!, x2!)) : null
-              const barR = hasBar ? Math.min(ganttW, Math.max(x1!, x2!)) : null
-              const barW = barL !== null && barR !== null ? Math.max(barR - barL, 2) : 0
+              const barL   = hasBar ? Math.max(0, Math.min(x1!, x2!)) : null
+              const barR   = hasBar ? Math.min(ganttW, Math.max(x1!, x2!)) : null
+              const barW   = barL !== null && barR !== null ? Math.max(barR - barL, 2) : 0
 
-              const d1Visible = x1 !== null && x1 >= -2 && x1 <= ganttW + 2
-              const d2Visible = x2 !== null && x2 >= -2 && x2 <= ganttW + 2
+              const d1Vis = x1 !== null && x1 >= -2 && x1 <= ganttW + 2
+              const d2Vis = x2 !== null && x2 >= -2 && x2 <= ganttW + 2
 
               return (
                 <tr
@@ -251,127 +274,102 @@ export default function GanttTab() {
                   className="hover:bg-blue-50/30 transition-colors"
                 >
                   {/* Flag */}
-                  <td style={stickyCell(LEFT_OFFSETS[0], false, bg)} className="px-1 text-center text-xs">
+                  <td style={cellStyle(0, false, bg)} className="px-1 text-center text-xs">
                     {d.is_critical && '🚩'}
                   </td>
 
                   {/* Item */}
-                  <td style={stickyCell(LEFT_OFFSETS[1], false, bg)} className="px-2 py-1 text-sm font-medium text-slate-800">
+                  <td style={cellStyle(leftOffsets.item, false, bg)} className="px-2 py-1 text-sm font-medium text-slate-800">
                     <span className="block truncate" title={d.item}>{d.item}</span>
                   </td>
 
+                  {/* Type */}
+                  <td style={cellStyle(leftOffsets.type, false, bg)} className="px-2 py-1">
+                    <span
+                      className="block truncate text-xs font-medium"
+                      style={{ color: TYPE_COLOR[d.type] ?? '#64748b' }}
+                      title={d.type}
+                    >
+                      {TYPE_SHORT[d.type] ?? d.type}
+                    </span>
+                  </td>
+
+                  {/* Workstream */}
+                  <td style={cellStyle(leftOffsets.workstream, false, bg)} className="px-2 py-1">
+                    <span className="inline-flex items-center gap-1 text-xs bg-slate-100 text-slate-600 px-1 py-0.5 rounded whitespace-nowrap">
+                      <BucketDot bucket={d.bucket} />
+                      W{d.workstream}
+                    </span>
+                  </td>
+
                   {/* Owner */}
-                  <td style={stickyCell(LEFT_OFFSETS[2], false, bg)} className="px-2 text-xs text-slate-600 whitespace-nowrap overflow-hidden">
+                  <td style={cellStyle(leftOffsets.owner, false, bg)} className="px-2 py-1 text-xs text-slate-600">
                     <span className="block truncate">{d.owner ?? '—'}</span>
                   </td>
 
                   {/* Approval date */}
-                  <td style={stickyCell(LEFT_OFFSETS[3], false, bg)} className="px-2 text-xs text-slate-600 whitespace-nowrap">
+                  <td style={cellStyle(leftOffsets.appr, false, bg)} className="px-2 py-1 text-xs text-slate-600 whitespace-nowrap">
                     {formatDate(d.approval_date)}
                   </td>
 
                   {/* Due date */}
-                  <td style={stickyCell(LEFT_OFFSETS[4], false, bg)} className="px-2 text-xs text-slate-600 whitespace-nowrap">
+                  <td style={cellStyle(leftOffsets.due, false, bg)} className="px-2 py-1 text-xs text-slate-600 whitespace-nowrap">
                     {formatDate(d.due_date)}
                   </td>
 
                   {/* Status */}
-                  <td style={stickyCell(LEFT_OFFSETS[5], true, bg)} className="px-2">
+                  <td style={cellStyle(leftOffsets.status, true, bg)} className="px-2 py-1">
                     <StatusPill status={d.status} dueDate={d.due_date} />
                   </td>
 
-                  {/* ── Timeline cell ── */}
-                  <td
-                    colSpan={TOTAL_WEEKS}
-                    style={{
-                      position: 'relative',
-                      padding: 0,
-                      height: 36,
-                      borderBottom: '1px solid #f1f5f9',
-                    }}
-                  >
+                  {/* ── Timeline ── */}
+                  <td colSpan={TOTAL_WEEKS} style={{ position: 'relative', padding: 0, height: 36, borderBottom: '1px solid #f1f5f9' }}>
+
                     {/* Week grid lines */}
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', pointerEvents: 'none' }}>
                       {WEEKS.map((_, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            width: WEEK_W,
-                            flexShrink: 0,
-                            height: '100%',
-                            borderRight: '1px solid #f1f5f9',
-                            background: i === todayWeekIdx ? 'rgba(254,226,226,0.35)' : 'transparent',
-                          }}
-                        />
+                        <div key={i} style={{
+                          width: WEEK_W, flexShrink: 0, height: '100%',
+                          borderRight: '1px solid #f1f5f9',
+                          background: i === todayWeekIdx ? 'rgba(254,226,226,0.35)' : 'transparent',
+                        }} />
                       ))}
                     </div>
 
                     {/* Today line */}
                     {todayX >= 0 && todayX <= ganttW && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: todayX,
-                          top: 0,
-                          bottom: 0,
-                          width: 2,
-                          background: 'rgba(239,68,68,0.8)',
-                          zIndex: 4,
-                          pointerEvents: 'none',
-                        }}
-                      />
+                      <div style={{
+                        position: 'absolute', left: todayX, top: 0, bottom: 0,
+                        width: 2, background: 'rgba(239,68,68,0.8)', zIndex: 4, pointerEvents: 'none',
+                      }} />
                     )}
 
-                    {/* Bar (only when both dates present) */}
+                    {/* Bar */}
                     {hasBar && barW > 0 && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: barL!,
-                          width: barW,
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          height: 10,
-                          background: barColor,
-                          borderRadius: 5,
-                          zIndex: 3,
-                          pointerEvents: 'none',
-                        }}
-                      />
+                      <div style={{
+                        position: 'absolute', left: barL!, width: barW,
+                        top: '50%', transform: 'translateY(-50%)',
+                        height: 10, background: barColor, borderRadius: 5,
+                        zIndex: 3, pointerEvents: 'none',
+                      }} />
                     )}
 
-                    {/* ◆ Approval date marker */}
-                    {d1Visible && (
-                      <span
-                        style={{
-                          position: 'absolute',
-                          left: x1!,
-                          top: '50%',
-                          transform: 'translate(-50%, -50%)',
-                          fontSize: 10,
-                          color: barColor,
-                          zIndex: 5,
-                          lineHeight: 1,
-                          pointerEvents: 'none',
-                        }}
-                      >◆</span>
+                    {/* ◆ Approval marker */}
+                    {d1Vis && (
+                      <span style={{
+                        position: 'absolute', left: x1!, top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        fontSize: 10, color: barColor, zIndex: 5, lineHeight: 1, pointerEvents: 'none',
+                      }}>◆</span>
                     )}
 
                     {/* ■ Due date marker */}
-                    {d2Visible && (
-                      <span
-                        style={{
-                          position: 'absolute',
-                          left: x2!,
-                          top: '50%',
-                          transform: 'translate(-50%, -50%)',
-                          fontSize: 11,
-                          color: barColor,
-                          zIndex: 5,
-                          lineHeight: 1,
-                          pointerEvents: 'none',
-                        }}
-                      >■</span>
+                    {d2Vis && (
+                      <span style={{
+                        position: 'absolute', left: x2!, top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        fontSize: 11, color: barColor, zIndex: 5, lineHeight: 1, pointerEvents: 'none',
+                      }}>■</span>
                     )}
                   </td>
                 </tr>
