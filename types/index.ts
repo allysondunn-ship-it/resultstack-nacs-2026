@@ -25,6 +25,22 @@ export interface Decision {
 
 export type PillStatus = 'done' | 'na' | 'passed' | 'urgent' | 'soon' | 'upcoming'
 
+export interface WorkstreamItem {
+  id: string
+  workstream_id: number
+  text: string
+  sort_order: number
+  created_at: string
+}
+
+export interface WorkstreamSubitem {
+  id: string
+  item_id: string
+  text: string
+  sort_order: number
+  created_at: string
+}
+
 export interface Workstream {
   id: number
   name: string
