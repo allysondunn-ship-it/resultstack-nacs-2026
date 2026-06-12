@@ -9,7 +9,7 @@ export function computePillStatus(
   if (status === 'done') return 'done'
   if (status === 'na') return 'na'
 
-  if (!dueDate) return 'upcoming'
+  if (!dueDate) return 'tbd'
 
   const due = new Date(dueDate)
   const diffDays = Math.ceil((due.getTime() - TODAY.getTime()) / (1000 * 60 * 60 * 24))
@@ -27,6 +27,7 @@ export const PILL_CONFIG: Record<PillStatus, { label: string; className: string 
   urgent: { label: 'Urgent', className: 'bg-red-100 text-red-700 border border-red-200' },
   soon: { label: 'Soon', className: 'bg-amber-100 text-amber-700 border border-amber-200' },
   upcoming: { label: 'Upcoming', className: 'bg-blue-100 text-blue-700 border border-blue-200' },
+  tbd: { label: 'No date set', className: 'bg-slate-100 text-slate-400 border border-slate-200' },
 }
 
 export const STATUS_LABELS: Record<StatusValue, string> = {

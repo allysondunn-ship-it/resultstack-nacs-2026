@@ -37,7 +37,7 @@ export interface Decision {
   resolved: boolean
 }
 
-export type PillStatus = 'done' | 'na' | 'passed' | 'urgent' | 'soon' | 'upcoming'
+export type PillStatus = 'done' | 'na' | 'passed' | 'urgent' | 'soon' | 'upcoming' | 'tbd'
 
 export interface Workstream {
   id: number

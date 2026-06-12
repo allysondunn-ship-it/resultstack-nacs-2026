@@ -5,6 +5,7 @@ import type { CSSProperties } from 'react'
 import { useDeadlines } from '@/lib/useDeadlines'
 import { formatDate } from '@/lib/utils'
 import StatusPill from './StatusPill'
+import { BUCKET_COLORS } from '@/data/workstreams'
 import type { Deadline } from '@/types'
 
 // ── Timeline config ────────────────────────────────────────────────────────────
@@ -95,18 +96,31 @@ function weekLabel(d: Date): string {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
+function BucketDot({ bucket }: { bucket: number }) {
+  return (
+    <span
+      style={{ background: BUCKET_COLORS[bucket] ?? '#94a3b8' }}
+      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+    />
+  )
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function GanttTab() {
   const { deadlines, loading } = useDeadlines()
 
-  const rows = useMemo(() => (
-    [...deadlines].sort((a, b) => {
-      if (!a.due_date && !b.due_date) return 0
+  const { rows, undated } = useMemo(() => {
+    const sorted = [...deadlines].sort((a, b) => {
+      if (!a.due_date && !b.due_date) return a.item.localeCompare(b.item)
       if (!a.due_date) return 1
       if (!b.due_date) return -1
       return a.due_date.localeCompare(b.due_date)
     })
-  ), [deadlines])
+    return {
+      rows: sorted.filter(d => d.due_date !== null),
+      undated: sorted.filter(d => d.due_date === null),
+    }
+  }, [deadlines])
 
   if (loading) {
     return (
@@ -136,6 +150,28 @@ export default function GanttTab() {
           <span>■ due date</span>
         </span>
       </div>
+
+      {/* Date TBD panel — items with no due date can't be plotted */}
+      {undated.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
+          <div className="px-4 py-2 border-b border-amber-200 flex items-center gap-2">
+            <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+              Date TBD — {undated.length} item{undated.length !== 1 ? 's' : ''} not yet on timeline
+            </span>
+            <span className="text-xs text-amber-500">Add a due date to plot these on the chart</span>
+          </div>
+          <div className="px-4 py-3 flex flex-wrap gap-2">
+            {undated.map(d => (
+              <div key={d.id} className="flex items-center gap-2 bg-white border border-amber-200 rounded-md px-3 py-1.5 text-xs shadow-sm min-w-0">
+                <BucketDot bucket={d.bucket} />
+                <span className="font-medium text-slate-800 max-w-[200px] truncate" title={d.item}>{d.item}</span>
+                {d.owner && <span className="text-slate-400 flex-shrink-0">· {d.owner}</span>}
+                <StatusPill status={d.status} dueDate={null} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Gantt table */}
       <div

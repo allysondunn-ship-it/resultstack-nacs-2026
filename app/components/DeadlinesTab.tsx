@@ -141,10 +141,13 @@ export default function DeadlinesTab() {
   }, [deadlines, criticalOnly, filterOwner, filterStatus, filterType, filterWorkstream, filterBucket, sortField, sortDir])
 
   const summary = useMemo(() => {
-    const counts: Record<PillStatus, number> = { passed: 0, urgent: 0, soon: 0, upcoming: 0, done: 0, na: 0 }
+    const counts: Record<PillStatus, number> = { passed: 0, urgent: 0, soon: 0, upcoming: 0, done: 0, na: 0, tbd: 0 }
     deadlines.forEach(d => counts[computePillStatus(d.status, d.due_date)]++)
     return counts
   }, [deadlines])
+
+  const dated = filtered.filter(d => d.due_date !== null)
+  const undated = filtered.filter(d => d.due_date === null)
 
   const toggleRow = (id: string) => setExpandedRows(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
@@ -469,7 +472,22 @@ export default function DeadlinesTab() {
           </thead>
 
           <tbody className="divide-y divide-slate-100">
-            {filtered.map(d => {
+            {[
+              ...dated,
+              ...(undated.length > 0 ? [{ __divider: true, count: undated.length } as const] : []),
+              ...undated,
+            ].map((d) => {
+              if ('__divider' in d) {
+                return (
+                  <tr key="__tbd-divider">
+                    <td colSpan={10} className="bg-amber-50 px-4 py-1.5 border-t border-b border-amber-200">
+                      <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                        Date TBD · {d.count} item{d.count !== 1 ? 's' : ''} — due date not yet set
+                      </span>
+                    </td>
+                  </tr>
+                )
+              }
               const subs = subtasksFor(d.id)
               const expanded = expandedRows.has(d.id)
               return (
@@ -516,16 +534,24 @@ export default function DeadlinesTab() {
                     </td>
 
                     {/* Due date */}
-                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="px-3 py-3 whitespace-nowrap">
                       {editingCell?.id === d.id && editingCell.field === 'due_date' ? (
                         <input autoFocus type="date"
                           className="text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-slate-400"
                           defaultValue={d.due_date ?? ''}
                           onChange={e => commitEdit(d.id, 'due_date', e.target.value)}
                           onBlur={() => setEditingCell(null)} />
-                      ) : (
-                        <button className="hover:underline text-left" onClick={() => setEditingCell({ id: d.id, field: 'due_date' })} title="Click to edit">
+                      ) : d.due_date ? (
+                        <button className="text-slate-600 hover:underline text-left" onClick={() => setEditingCell({ id: d.id, field: 'due_date' })} title="Click to edit">
                           {formatDate(d.due_date)}
+                        </button>
+                      ) : (
+                        <button
+                          className="inline-flex items-center text-xs font-medium text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded hover:bg-amber-100 transition-colors"
+                          onClick={() => setEditingCell({ id: d.id, field: 'due_date' })}
+                          title="Click to add due date"
+                        >
+                          TBD
                         </button>
                       )}
                     </td>
@@ -703,7 +729,10 @@ export default function DeadlinesTab() {
                 <div className="flex items-center gap-2 flex-wrap">
                   {d.is_critical && <span>🚩</span>}
                   <StatusPill status={d.status} dueDate={d.due_date} />
-                  <span className="text-xs text-slate-400">{formatDate(d.due_date)}</span>
+                  {d.due_date
+                    ? <span className="text-xs text-slate-400">{formatDate(d.due_date)}</span>
+                    : <span className="text-xs font-medium text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">TBD</span>
+                  }
                   <span className={`text-xs px-1.5 py-0.5 rounded ${TYPE_STYLE[d.type] ?? 'bg-slate-50 text-slate-600'}`}>
                     {TYPE_SHORT[d.type] ?? d.type}
                   </span>
