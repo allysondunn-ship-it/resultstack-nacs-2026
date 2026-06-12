@@ -41,8 +41,18 @@ export default function DeadlinesTab() {
     subtasksFor,
   } = useDeadlines()
 
+  // Sort state — critical rows always float to top; sort applies within each tier
+  type SortField = 'due_date' | 'approval_date' | 'item' | 'owner' | 'status' | 'amount'
+  const [sortField, setSortField] = useState<SortField>('due_date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  const setSort = (field: SortField) => {
+    if (field === sortField) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortField(field); setSortDir('asc') }
+  }
+
   // Editing state
-  type EditField = 'item' | 'due_date' | 'status' | 'owner'
+  type EditField = 'item' | 'due_date' | 'approval_date' | 'status' | 'owner'
   const [editingCell, setEditingCell] = useState<{ id: string; field: EditField } | null>(null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
@@ -70,15 +80,41 @@ export default function DeadlinesTab() {
   const [filterBucket, setFilterBucket] = useState('')
   const [criticalOnly, setCriticalOnly] = useState(false)
 
-  const filtered = useMemo(() => deadlines.filter(d => {
-    if (criticalOnly && !d.is_critical) return false
-    if (filterOwner === '__unassigned') { if (d.owner?.trim()) return false }
-    else if (filterOwner && d.owner !== filterOwner) return false
-    if (filterStatus && d.status !== filterStatus) return false
-    if (filterWorkstream && d.workstream !== parseInt(filterWorkstream)) return false
-    if (filterBucket && d.bucket !== parseInt(filterBucket)) return false
-    return true
-  }), [deadlines, criticalOnly, filterOwner, filterStatus, filterWorkstream, filterBucket])
+  const filtered = useMemo(() => {
+    const rows = deadlines.filter(d => {
+      if (criticalOnly && !d.is_critical) return false
+      if (filterOwner === '__unassigned') { if (d.owner?.trim()) return false }
+      else if (filterOwner && d.owner !== filterOwner) return false
+      if (filterStatus && d.status !== filterStatus) return false
+      if (filterWorkstream && d.workstream !== parseInt(filterWorkstream)) return false
+      if (filterBucket && d.bucket !== parseInt(filterBucket)) return false
+      return true
+    })
+
+    const cmp = (a: typeof rows[0], b: typeof rows[0]) => {
+      // Critical rows always first, regardless of sort column
+      if (a.is_critical !== b.is_critical) return a.is_critical ? -1 : 1
+
+      let av: string | number | null = null
+      let bv: string | number | null = null
+      if (sortField === 'due_date')       { av = a.due_date;       bv = b.due_date }
+      else if (sortField === 'approval_date') { av = a.approval_date; bv = b.approval_date }
+      else if (sortField === 'item')      { av = a.item.toLowerCase(); bv = b.item.toLowerCase() }
+      else if (sortField === 'owner')     { av = a.owner?.toLowerCase() ?? null; bv = b.owner?.toLowerCase() ?? null }
+      else if (sortField === 'status')    { av = a.status; bv = b.status }
+      else if (sortField === 'amount')    { av = a.amount; bv = b.amount }
+
+      // Nulls always last
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+
+      const result = av < bv ? -1 : av > bv ? 1 : 0
+      return sortDir === 'asc' ? result : -result
+    }
+
+    return [...rows].sort(cmp)
+  }, [deadlines, criticalOnly, filterOwner, filterStatus, filterWorkstream, filterBucket, sortField, sortDir])
 
   const summary = useMemo(() => {
     const counts: Record<PillStatus, number> = { passed: 0, urgent: 0, soon: 0, upcoming: 0, done: 0, na: 0 }
@@ -98,6 +134,7 @@ export default function DeadlinesTab() {
     else if (field === 'owner') await updateDeadline(id, { owner: value || null })
     else if (field === 'item') { if (value.trim()) await updateDeadline(id, { item: value.trim() }) }
     else if (field === 'due_date') await updateDeadline(id, { due_date: value || null })
+    else if (field === 'approval_date') await updateDeadline(id, { approval_date: value || null })
   }
 
   const commitDetail = async (id: string, field: 'approval_date' | 'category' | 'amount', value: string) => {
@@ -343,14 +380,27 @@ export default function DeadlinesTab() {
       <div className="hidden md:block overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wide">
+            <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wide select-none">
               <th className="px-3 py-2.5 w-5"></th>
-              <th className="text-left px-3 py-2.5">Status</th>
-              <th className="text-left px-3 py-2.5">Due Date</th>
-              <th className="text-left px-3 py-2.5">Item</th>
+              {([ ['status','Status'], ['due_date','Due Date'], ['approval_date','Appr. Date'], ['item','Item'], ] as [SortField, string][]).map(([f, label]) => (
+                <th key={f} className="text-left px-3 py-2.5">
+                  <button className="flex items-center gap-1 hover:text-slate-800 transition-colors" onClick={() => setSort(f)}>
+                    {label}
+                    <span className="text-slate-300">{sortField === f ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                  </button>
+                </th>
+              ))}
               <th className="text-left px-3 py-2.5">W</th>
-              <th className="text-left px-3 py-2.5">Owner</th>
-              <th className="text-right px-3 py-2.5">Amount</th>
+              <th className="text-left px-3 py-2.5">
+                <button className="flex items-center gap-1 hover:text-slate-800 transition-colors" onClick={() => setSort('owner')}>
+                  Owner <span className="text-slate-300">{sortField === 'owner' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                </button>
+              </th>
+              <th className="text-right px-3 py-2.5">
+                <button className="flex items-center gap-1 hover:text-slate-800 transition-colors justify-end w-full" onClick={() => setSort('amount')}>
+                  Amount <span className="text-slate-300">{sortField === 'amount' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                </button>
+              </th>
               <th className="px-3 py-2.5 w-16"></th>
             </tr>
           </thead>
@@ -395,6 +445,21 @@ export default function DeadlinesTab() {
                       ) : (
                         <button className="hover:underline text-left" onClick={() => setEditingCell({ id: d.id, field: 'due_date' })} title="Click to edit">
                           {formatDate(d.due_date)}
+                        </button>
+                      )}
+                    </td>
+
+                    {/* Approval date */}
+                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                      {editingCell?.id === d.id && editingCell.field === 'approval_date' ? (
+                        <input autoFocus type="date"
+                          className="text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          defaultValue={d.approval_date ?? ''}
+                          onChange={e => commitEdit(d.id, 'approval_date', e.target.value)}
+                          onBlur={() => setEditingCell(null)} />
+                      ) : (
+                        <button className="hover:underline text-left" onClick={() => setEditingCell({ id: d.id, field: 'approval_date' })} title="Click to edit">
+                          {formatDate(d.approval_date)}
                         </button>
                       )}
                     </td>
@@ -466,7 +531,7 @@ export default function DeadlinesTab() {
                   {/* Expanded panel */}
                   {expanded && (
                     <tr key={`${d.id}-exp`} className="bg-slate-50/60">
-                      <td colSpan={8} className="px-6 py-4">
+                      <td colSpan={9} className="px-6 py-4">
                         <div className="grid gap-5 sm:grid-cols-2">
                           {/* Left: notes */}
                           <div>
@@ -482,7 +547,7 @@ export default function DeadlinesTab() {
                               onChange={e => handleNoteChange(d.id, e.target.value)}
                             />
                             {/* Detail fields */}
-                            <div className="mt-2 grid grid-cols-3 gap-2">
+                            <div className="mt-2 grid grid-cols-2 gap-2">
                               {/* Amount */}
                               <div>
                                 <span className="block text-xs text-slate-400 mb-0.5">Amount</span>
@@ -495,21 +560,6 @@ export default function DeadlinesTab() {
                                 ) : (
                                   <button className="text-sm text-slate-700 hover:underline" onClick={() => setEditingDetail({ id: d.id, field: 'amount' })}>
                                     {d.amount != null ? formatCurrency(d.amount) : <span className="text-slate-300 italic">—</span>}
-                                  </button>
-                                )}
-                              </div>
-                              {/* Approval date */}
-                              <div>
-                                <span className="block text-xs text-slate-400 mb-0.5">Approval Date</span>
-                                {editingDetail?.id === d.id && editingDetail.field === 'approval_date' ? (
-                                  <input autoFocus type="date"
-                                    className="w-full text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none"
-                                    defaultValue={d.approval_date ?? ''}
-                                    onChange={e => commitDetail(d.id, 'approval_date', e.target.value)}
-                                    onBlur={() => setEditingDetail(null)} />
-                                ) : (
-                                  <button className="text-sm text-slate-700 hover:underline" onClick={() => setEditingDetail({ id: d.id, field: 'approval_date' })}>
-                                    {d.approval_date ? formatDate(d.approval_date) : <span className="text-slate-300 italic">—</span>}
                                   </button>
                                 )}
                               </div>
