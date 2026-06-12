@@ -1,10 +1,12 @@
 export type StatusValue = 'not_started' | 'in_progress' | 'done' | 'na'
+export type DeadlineType = 'Vendor Deadline' | 'Internal Action' | 'Milestone'
 
 export interface Deadline {
   id: string
   due_date: string | null
   approval_date: string | null
   item: string
+  type: DeadlineType
   workstream: number
   bucket: number
   owner: string | null

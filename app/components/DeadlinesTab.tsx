@@ -4,22 +4,34 @@ import { useState, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useDeadlines } from '@/lib/useDeadlines'
 import { computePillStatus, PILL_CONFIG, STATUS_LABELS, formatDate, formatCurrency } from '@/lib/utils'
-import { BUCKET_MAP, BUCKETS } from '@/data/workstreams'
+import { BUCKETS, BUCKET_COLORS } from '@/data/workstreams'
 import StatusPill from './StatusPill'
 import SubtaskPanel from './SubtaskPanel'
-import type { StatusValue, PillStatus } from '@/types'
+import type { StatusValue, PillStatus, DeadlineType } from '@/types'
 
-const EMPTY_FORM = {
-  item: '',
-  status: 'not_started' as StatusValue,
-  due_date: '',
-  approval_date: '',
-  workstream: 1,
-  owner: '',
-  amount: '',
-  category: '',
-  is_critical: false,
-  notes: '',
+// ── Type field config ─────────────────────────────────────────────────────────
+const DEADLINE_TYPES: DeadlineType[] = ['Vendor Deadline', 'Internal Action', 'Milestone']
+
+const TYPE_STYLE: Record<DeadlineType, string> = {
+  'Vendor Deadline': 'bg-amber-50 text-amber-700',
+  'Internal Action': 'bg-sky-50 text-sky-700',
+  'Milestone':       'bg-emerald-50 text-emerald-700',
+}
+
+const TYPE_SHORT: Record<DeadlineType, string> = {
+  'Vendor Deadline': 'Vendor',
+  'Internal Action': 'Internal',
+  'Milestone':       'Milestone',
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function BucketDot({ bucket }: { bucket: number }) {
+  return (
+    <span
+      style={{ background: BUCKET_COLORS[bucket] ?? '#94a3b8' }}
+      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+    />
+  )
 }
 
 function TrashIcon() {
@@ -33,6 +45,22 @@ function TrashIcon() {
   )
 }
 
+// ── Form default ──────────────────────────────────────────────────────────────
+const EMPTY_FORM = {
+  item: '',
+  type: 'Vendor Deadline' as DeadlineType,
+  status: 'not_started' as StatusValue,
+  due_date: '',
+  approval_date: '',
+  workstream: 1,
+  owner: '',
+  amount: '',
+  category: '',
+  is_critical: false,
+  notes: '',
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 export default function DeadlinesTab() {
   const {
     deadlines, owners, loading,
@@ -41,8 +69,7 @@ export default function DeadlinesTab() {
     subtasksFor,
   } = useDeadlines()
 
-  // Sort state — critical rows always float to top; sort applies within each tier
-  type SortField = 'due_date' | 'approval_date' | 'item' | 'owner' | 'status' | 'amount'
+  type SortField = 'due_date' | 'approval_date' | 'item' | 'owner' | 'status' | 'amount' | 'type'
   const [sortField, setSortField] = useState<SortField>('due_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
@@ -51,34 +78,32 @@ export default function DeadlinesTab() {
     else { setSortField(field); setSortDir('asc') }
   }
 
-  // Editing state
-  type EditField = 'item' | 'due_date' | 'approval_date' | 'status' | 'owner'
+  type EditField = 'item' | 'due_date' | 'approval_date' | 'status' | 'owner' | 'type'
   const [editingCell, setEditingCell] = useState<{ id: string; field: EditField } | null>(null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
-  // Per-row note edit (debounced)
   const [localNotes, setLocalNotes] = useState<Record<string, string>>({})
   const noteTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [noteStatus, setNoteStatus] = useState<Record<string, 'saving' | 'saved'>>({})
 
-  // Expanded details (approval_date, category, amount)
   const [editingDetail, setEditingDetail] = useState<{ id: string; field: 'approval_date' | 'category' | 'amount' } | null>(null)
 
-  // Add form
   const [showAddForm, setShowAddForm] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
 
-  // Manage team UI
   const [showTeamManager, setShowTeamManager] = useState(false)
   const [newName, setNewName] = useState('')
   const newNameInputRef = useRef<HTMLInputElement>(null)
-  // Filters
+
   const [filterOwner, setFilterOwner] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
+  const [filterType, setFilterType] = useState('')
   const [filterWorkstream, setFilterWorkstream] = useState('')
   const [filterBucket, setFilterBucket] = useState('')
   const [criticalOnly, setCriticalOnly] = useState(false)
+
+  const hasActiveFilter = !!(filterOwner || filterStatus || filterType || filterWorkstream || filterBucket || criticalOnly)
 
   const filtered = useMemo(() => {
     const rows = deadlines.filter(d => {
@@ -86,35 +111,34 @@ export default function DeadlinesTab() {
       if (filterOwner === '__unassigned') { if (d.owner?.trim()) return false }
       else if (filterOwner && d.owner !== filterOwner) return false
       if (filterStatus && d.status !== filterStatus) return false
+      if (filterType && d.type !== filterType) return false
       if (filterWorkstream && d.workstream !== parseInt(filterWorkstream)) return false
       if (filterBucket && d.bucket !== parseInt(filterBucket)) return false
       return true
     })
 
     const cmp = (a: typeof rows[0], b: typeof rows[0]) => {
-      // Critical rows always first, regardless of sort column
       if (a.is_critical !== b.is_critical) return a.is_critical ? -1 : 1
 
       let av: string | number | null = null
       let bv: string | number | null = null
-      if (sortField === 'due_date')       { av = a.due_date;       bv = b.due_date }
-      else if (sortField === 'approval_date') { av = a.approval_date; bv = b.approval_date }
-      else if (sortField === 'item')      { av = a.item.toLowerCase(); bv = b.item.toLowerCase() }
-      else if (sortField === 'owner')     { av = a.owner?.toLowerCase() ?? null; bv = b.owner?.toLowerCase() ?? null }
-      else if (sortField === 'status')    { av = a.status; bv = b.status }
-      else if (sortField === 'amount')    { av = a.amount; bv = b.amount }
+      if (sortField === 'due_date')           { av = a.due_date;                   bv = b.due_date }
+      else if (sortField === 'approval_date') { av = a.approval_date;              bv = b.approval_date }
+      else if (sortField === 'item')          { av = a.item.toLowerCase();         bv = b.item.toLowerCase() }
+      else if (sortField === 'owner')         { av = a.owner?.toLowerCase() ?? null; bv = b.owner?.toLowerCase() ?? null }
+      else if (sortField === 'status')        { av = a.status;                     bv = b.status }
+      else if (sortField === 'amount')        { av = a.amount;                     bv = b.amount }
+      else if (sortField === 'type')          { av = a.type;                       bv = b.type }
 
-      // Nulls always last
       if (av == null && bv == null) return 0
       if (av == null) return 1
       if (bv == null) return -1
-
       const result = av < bv ? -1 : av > bv ? 1 : 0
       return sortDir === 'asc' ? result : -result
     }
 
     return [...rows].sort(cmp)
-  }, [deadlines, criticalOnly, filterOwner, filterStatus, filterWorkstream, filterBucket, sortField, sortDir])
+  }, [deadlines, criticalOnly, filterOwner, filterStatus, filterType, filterWorkstream, filterBucket, sortField, sortDir])
 
   const summary = useMemo(() => {
     const counts: Record<PillStatus, number> = { passed: 0, urgent: 0, soon: 0, upcoming: 0, done: 0, na: 0 }
@@ -123,14 +147,13 @@ export default function DeadlinesTab() {
   }, [deadlines])
 
   const toggleRow = (id: string) => setExpandedRows(prev => {
-    const next = new Set(prev)
-    next.has(id) ? next.delete(id) : next.add(id)
-    return next
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
   })
 
   const commitEdit = async (id: string, field: EditField, value: string) => {
     setEditingCell(null)
     if (field === 'status') await updateDeadline(id, { status: value as StatusValue })
+    else if (field === 'type') await updateDeadline(id, { type: value as DeadlineType })
     else if (field === 'owner') await updateDeadline(id, { owner: value || null })
     else if (field === 'item') { if (value.trim()) await updateDeadline(id, { item: value.trim() }) }
     else if (field === 'due_date') await updateDeadline(id, { due_date: value || null })
@@ -164,6 +187,7 @@ export default function DeadlinesTab() {
     setSaving(true)
     await addDeadline({
       item: form.item.trim(),
+      type: form.type,
       status: form.status,
       due_date: form.due_date || null,
       approval_date: form.approval_date || null,
@@ -179,7 +203,6 @@ export default function DeadlinesTab() {
     setSaving(false)
   }
 
-  // Team manager helpers
   const addOwner = async () => {
     const name = newName.trim()
     if (!name) return
@@ -201,6 +224,7 @@ export default function DeadlinesTab() {
 
   return (
     <div className="space-y-4">
+
       {/* Summary strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {(['passed', 'urgent', 'soon', 'upcoming'] as PillStatus[]).map(pill => (
@@ -211,7 +235,7 @@ export default function DeadlinesTab() {
         ))}
       </div>
 
-      {/* Filters + actions bar */}
+      {/* Filters + actions */}
       <div className="bg-white border border-slate-200 rounded-lg px-4 py-3 space-y-3">
         <div className="flex flex-wrap gap-2 items-center">
           <select className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
@@ -220,6 +244,7 @@ export default function DeadlinesTab() {
             <option value="__unassigned">Unassigned</option>
             {owners.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
+
           <select className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
             value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
             <option value="">All statuses</option>
@@ -227,29 +252,40 @@ export default function DeadlinesTab() {
               <option key={k} value={k}>{v}</option>
             ))}
           </select>
+
+          <select className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+            value={filterType} onChange={e => setFilterType(e.target.value)}>
+            <option value="">All types</option>
+            {DEADLINE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+
           <select className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
             value={filterBucket} onChange={e => { setFilterBucket(e.target.value); setFilterWorkstream('') }}>
             <option value="">All buckets</option>
-            {Object.entries(BUCKET_MAP).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {BUCKETS.map(b => <option key={b.id} value={b.id}>B{b.id} — {b.name}</option>)}
           </select>
+
           <select className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
             value={filterWorkstream} onChange={e => setFilterWorkstream(e.target.value)}>
             <option value="">All workstreams</option>
             {BUCKETS.flatMap(b => b.workstreams).map(w => (
-              <option key={w.id} value={w.id}>W{w.id} {w.name}</option>
+              <option key={w.id} value={w.id}>B{w.bucket} W{w.id} — {w.name}</option>
             ))}
           </select>
+
           <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
             <input type="checkbox" checked={criticalOnly} onChange={e => setCriticalOnly(e.target.checked)}
               className="rounded border-slate-300 text-red-500 focus:ring-red-400" />
             Critical only
           </label>
-          {(filterOwner || filterStatus || filterWorkstream || filterBucket || criticalOnly) && (
+
+          {hasActiveFilter && (
             <button className="text-xs text-slate-400 hover:text-slate-700 underline"
-              onClick={() => { setFilterOwner(''); setFilterStatus(''); setFilterWorkstream(''); setFilterBucket(''); setCriticalOnly(false) }}>
+              onClick={() => { setFilterOwner(''); setFilterStatus(''); setFilterType(''); setFilterWorkstream(''); setFilterBucket(''); setCriticalOnly(false) }}>
               Clear filters
             </button>
           )}
+
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-slate-400">{filtered.length} of {deadlines.length}</span>
             <button
@@ -263,6 +299,16 @@ export default function DeadlinesTab() {
               {showAddForm ? '✕ Cancel' : '+ Add Deadline'}
             </button>
           </div>
+        </div>
+
+        {/* Bucket legend */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-50 pt-2">
+          {BUCKETS.map(b => (
+            <span key={b.id} className="flex items-center gap-1.5 text-xs text-slate-400">
+              <BucketDot bucket={b.id} />
+              B{b.id} {b.name}
+            </span>
+          ))}
         </div>
 
         {/* Team manager */}
@@ -302,6 +348,13 @@ export default function DeadlinesTab() {
                 className="w-full text-sm border border-slate-200 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-400" />
             </div>
             <div>
+              <label className="block text-xs text-slate-500 mb-1">Type</label>
+              <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as DeadlineType }))}
+                className="w-full text-sm border border-slate-200 rounded px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-slate-400">
+                {DEADLINE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
               <label className="block text-xs text-slate-500 mb-1">Category</label>
               <input type="text" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
                 placeholder="e.g. Payment, Submission…"
@@ -312,7 +365,7 @@ export default function DeadlinesTab() {
               <select value={form.workstream} onChange={e => setForm(f => ({ ...f, workstream: parseInt(e.target.value) }))}
                 className="w-full text-sm border border-slate-200 rounded px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-slate-400">
                 {BUCKETS.flatMap(b => b.workstreams).map(w => (
-                  <option key={w.id} value={w.id}>W{w.id} — {w.name}</option>
+                  <option key={w.id} value={w.id}>B{w.bucket} W{w.id} — {w.name}</option>
                 ))}
               </select>
             </div>
@@ -382,7 +435,12 @@ export default function DeadlinesTab() {
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wide select-none">
               <th className="px-3 py-2.5 w-5"></th>
-              {([ ['status','Status'], ['approval_date','Appr. Date'], ['due_date','Due Date'], ['item','Item'], ] as [SortField, string][]).map(([f, label]) => (
+              {([
+                ['status', 'Status'],
+                ['approval_date', 'Appr. Date'],
+                ['due_date', 'Due Date'],
+                ['item', 'Item'],
+              ] as [SortField, string][]).map(([f, label]) => (
                 <th key={f} className="text-left px-3 py-2.5">
                   <button className="flex items-center gap-1 hover:text-slate-800 transition-colors" onClick={() => setSort(f)}>
                     {label}
@@ -391,6 +449,11 @@ export default function DeadlinesTab() {
                 </th>
               ))}
               <th className="text-left px-3 py-2.5">W</th>
+              <th className="text-left px-3 py-2.5">
+                <button className="flex items-center gap-1 hover:text-slate-800 transition-colors" onClick={() => setSort('type')}>
+                  Type <span className="text-slate-300">{sortField === 'type' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                </button>
+              </th>
               <th className="text-left px-3 py-2.5">
                 <button className="flex items-center gap-1 hover:text-slate-800 transition-colors" onClick={() => setSort('owner')}>
                   Owner <span className="text-slate-300">{sortField === 'owner' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
@@ -404,6 +467,7 @@ export default function DeadlinesTab() {
               <th className="px-3 py-2.5 w-16"></th>
             </tr>
           </thead>
+
           <tbody className="divide-y divide-slate-100">
             {filtered.map(d => {
               const subs = subtasksFor(d.id)
@@ -411,6 +475,8 @@ export default function DeadlinesTab() {
               return (
                 <>
                   <tr key={d.id} className={`group hover:bg-slate-50 transition-colors ${d.is_critical ? 'bg-red-50/30' : ''}`}>
+
+                    {/* Flag */}
                     <td className="px-3 py-3 text-center text-sm">
                       {d.is_critical && '🚩'}
                     </td>
@@ -479,11 +545,31 @@ export default function DeadlinesTab() {
                       )}
                     </td>
 
-                    {/* Workstream tag */}
+                    {/* Workstream tag with bucket dot */}
                     <td className="px-3 py-3">
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-600">
+                      <span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-600">
+                        <BucketDot bucket={d.bucket} />
                         W{d.workstream}
                       </span>
+                    </td>
+
+                    {/* Type */}
+                    <td className="px-3 py-3">
+                      {editingCell?.id === d.id && editingCell.field === 'type' ? (
+                        <select autoFocus
+                          className="text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-slate-400 bg-white"
+                          defaultValue={d.type}
+                          onChange={e => commitEdit(d.id, 'type', e.target.value)}
+                          onBlur={() => setEditingCell(null)}>
+                          {DEADLINE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      ) : (
+                        <button className="text-left" onClick={() => setEditingCell({ id: d.id, field: 'type' })} title="Click to edit">
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${TYPE_STYLE[d.type] ?? 'bg-slate-50 text-slate-600'}`}>
+                            {TYPE_SHORT[d.type] ?? d.type}
+                          </span>
+                        </button>
+                      )}
                     </td>
 
                     {/* Owner */}
@@ -531,9 +617,9 @@ export default function DeadlinesTab() {
                   {/* Expanded panel */}
                   {expanded && (
                     <tr key={`${d.id}-exp`} className="bg-slate-50/60">
-                      <td colSpan={9} className="px-6 py-4">
+                      <td colSpan={10} className="px-6 py-4">
                         <div className="grid gap-5 sm:grid-cols-2">
-                          {/* Left: notes */}
+                          {/* Left: notes + details */}
                           <div>
                             <div className="flex items-center justify-between mb-1.5">
                               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Notes</span>
@@ -546,9 +632,7 @@ export default function DeadlinesTab() {
                               value={getNoteValue(d.id, d.notes)}
                               onChange={e => handleNoteChange(d.id, e.target.value)}
                             />
-                            {/* Detail fields */}
                             <div className="mt-2 grid grid-cols-2 gap-2">
-                              {/* Amount */}
                               <div>
                                 <span className="block text-xs text-slate-400 mb-0.5">Amount</span>
                                 {editingDetail?.id === d.id && editingDetail.field === 'amount' ? (
@@ -563,7 +647,6 @@ export default function DeadlinesTab() {
                                   </button>
                                 )}
                               </div>
-                              {/* Category */}
                               <div>
                                 <span className="block text-xs text-slate-400 mb-0.5">Category</span>
                                 {editingDetail?.id === d.id && editingDetail.field === 'category' ? (
@@ -584,7 +667,7 @@ export default function DeadlinesTab() {
                           {/* Right: subtasks */}
                           <div>
                             <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
-                              Subtasks {subs.length > 0 && <span className="text-slate-400 font-normal normal-case">({subs.filter(s => s.done).length}/{subs.length} done)</span>}
+                              Subtasks {subs.length > 0 && <span className="font-normal normal-case">({subs.filter(s => s.done).length}/{subs.length} done)</span>}
                             </span>
                             <SubtaskPanel
                               deadlineId={d.id}
@@ -621,16 +704,20 @@ export default function DeadlinesTab() {
                   {d.is_critical && <span>🚩</span>}
                   <StatusPill status={d.status} dueDate={d.due_date} />
                   <span className="text-xs text-slate-400">{formatDate(d.due_date)}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${TYPE_STYLE[d.type] ?? 'bg-slate-50 text-slate-600'}`}>
+                    {TYPE_SHORT[d.type] ?? d.type}
+                  </span>
                 </div>
-                <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded flex-shrink-0">W{d.workstream}</span>
+                <span className="inline-flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded flex-shrink-0">
+                  <BucketDot bucket={d.bucket} />
+                  W{d.workstream}
+                </span>
               </div>
               <p className="font-medium text-slate-900 text-sm">{d.item}</p>
               <div className="flex items-center gap-3 flex-wrap text-xs">
                 <span className="text-slate-400">Owner: <span className="text-slate-700">{d.owner || '—'}</span></span>
-                <span className="text-slate-400">Status: <span className="text-slate-700">{STATUS_LABELS[d.status]}</span></span>
                 {d.amount != null && <span className="font-medium text-slate-700">{formatCurrency(d.amount)}</span>}
               </div>
-              {/* Subtask count + expand */}
               <div className="flex items-center justify-between border-t border-slate-100 pt-2">
                 <button onClick={() => toggleRow(d.id)} className="text-xs text-slate-500 hover:text-slate-700">
                   {subs.length > 0 ? `${subs.filter(s => s.done).length}/${subs.length} subtasks` : 'Add subtasks'} {expanded ? '▲' : '▼'}
@@ -659,6 +746,7 @@ export default function DeadlinesTab() {
           <div className="text-center py-8 text-slate-400 text-sm">No items match the current filters.</div>
         )}
       </div>
+
     </div>
   )
 }

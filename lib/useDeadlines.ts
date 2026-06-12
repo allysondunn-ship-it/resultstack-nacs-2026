@@ -62,6 +62,7 @@ export function useDeadlines() {
     const wsId = data.workstream ?? 1
     const row = {
       item: data.item ?? '',
+      type: data.type ?? 'Vendor Deadline',
       workstream: wsId,
       bucket: WS_TO_BUCKET[wsId] ?? 1,
       status: (data.status ?? 'not_started') as StatusValue,

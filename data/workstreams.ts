@@ -52,3 +52,12 @@ export const WORKSTREAM_MAP: Record<number, string> = Object.fromEntries(
 export const BUCKET_MAP: Record<number, string> = Object.fromEntries(
   BUCKETS.map(b => [b.id, b.name])
 )
+
+// One fixed color per bucket — used for dots in the table and Gantt
+export const BUCKET_COLORS: Record<number, string> = {
+  1: '#3b82f6',  // blue   — Physical Show
+  2: '#8b5cf6',  // violet — Marketing Engine
+  3: '#10b981',  // emerald— The Show Itself
+  4: '#f59e0b',  // amber  — After the Show
+  5: '#f97316',  // orange — Operating System
+}
