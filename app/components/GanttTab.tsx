@@ -7,6 +7,8 @@ import { formatDate } from '@/lib/utils'
 import StatusPill from './StatusPill'
 import { BUCKET_COLORS, BUCKETS } from '@/data/workstreams'
 
+const DEADLINE_TYPES = ['Vendor Deadline', 'Internal Action', 'Milestone'] as const
+
 // ── Timeline constants ────────────────────────────────────────────────────────
 const GANTT_START = new Date('2026-03-30T00:00:00')
 const TODAY       = new Date('2026-06-12T00:00:00')
@@ -72,7 +74,22 @@ function BucketDot({ bucket }: { bucket: number }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function GanttTab() {
-  const { deadlines, loading } = useDeadlines()
+  const { deadlines, owners, loading } = useDeadlines()
+
+  // ── Filters ───────────────────────────────────────────────────────────────────
+  const [filterOwner,      setFilterOwner]      = useState('')
+  const [filterType,       setFilterType]        = useState('')
+  const [filterBucket,     setFilterBucket]      = useState('')
+  const [filterWorkstream, setFilterWorkstream]  = useState('')
+  const [filterDateStart,  setFilterDateStart]   = useState('')
+  const [filterDateEnd,    setFilterDateEnd]     = useState('')
+
+  const hasFilter = !!(filterOwner || filterType || filterBucket || filterWorkstream || filterDateStart || filterDateEnd)
+
+  const clearFilters = () => {
+    setFilterOwner(''); setFilterType(''); setFilterBucket('')
+    setFilterWorkstream(''); setFilterDateStart(''); setFilterDateEnd('')
+  }
 
   // ── Resizable column widths ──────────────────────────────────────────────────
   const [colWidths, setColWidths] = useState<Record<ResizableKey, number>>(DEFAULT_WIDTHS)
@@ -106,9 +123,21 @@ export default function GanttTab() {
   // ── Data ─────────────────────────────────────────────────────────────────────
   const rows = useMemo(() =>
     [...deadlines]
-      .filter(d => d.due_date !== null)
+      .filter(d => {
+        if (!d.due_date) return false
+        if (filterOwner && d.owner !== filterOwner) return false
+        if (filterType && d.type !== filterType) return false
+        if (filterBucket && d.bucket !== parseInt(filterBucket)) return false
+        if (filterWorkstream && d.workstream !== parseInt(filterWorkstream)) return false
+        if (filterDateStart || filterDateEnd) {
+          const dueOk  = !!d.due_date      && (!filterDateStart || d.due_date      >= filterDateStart) && (!filterDateEnd || d.due_date      <= filterDateEnd)
+          const apprOk = !!d.approval_date && (!filterDateStart || d.approval_date >= filterDateStart) && (!filterDateEnd || d.approval_date <= filterDateEnd)
+          if (!dueOk && !apprOk) return false
+        }
+        return true
+      })
       .sort((a, b) => a.due_date!.localeCompare(b.due_date!))
-  , [deadlines])
+  , [deadlines, filterOwner, filterType, filterBucket, filterWorkstream, filterDateStart, filterDateEnd])
 
   if (loading) {
     return (
@@ -135,6 +164,67 @@ export default function GanttTab() {
 
   return (
     <div className="space-y-3">
+
+      {/* Filter bar */}
+      <div className="bg-white border border-slate-200 rounded-lg px-4 py-3 flex flex-wrap gap-2 items-center">
+        <select
+          className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+          value={filterOwner} onChange={e => setFilterOwner(e.target.value)}
+        >
+          <option value="">All owners</option>
+          {owners.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+
+        <select
+          className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+          value={filterType} onChange={e => setFilterType(e.target.value)}
+        >
+          <option value="">All types</option>
+          {DEADLINE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+
+        <select
+          className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+          value={filterBucket} onChange={e => { setFilterBucket(e.target.value); setFilterWorkstream('') }}
+        >
+          <option value="">All buckets</option>
+          {BUCKETS.map(b => <option key={b.id} value={b.id}>B{b.id} — {b.name}</option>)}
+        </select>
+
+        <select
+          className="text-sm border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+          value={filterWorkstream} onChange={e => setFilterWorkstream(e.target.value)}
+        >
+          <option value="">All workstreams</option>
+          {BUCKETS.flatMap(b => b.workstreams).map(w => (
+            <option key={w.id} value={w.id}>B{w.bucket} W{w.id} — {w.name}</option>
+          ))}
+        </select>
+
+        <span className="text-xs text-slate-400 ml-1">From</span>
+        <input
+          type="date"
+          className="text-sm border border-slate-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-400"
+          value={filterDateStart} onChange={e => setFilterDateStart(e.target.value)}
+        />
+        <span className="text-xs text-slate-400">to</span>
+        <input
+          type="date"
+          className="text-sm border border-slate-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-400"
+          value={filterDateEnd} onChange={e => setFilterDateEnd(e.target.value)}
+        />
+
+        {hasFilter && (
+          <button
+            className="text-xs text-slate-400 hover:text-slate-700 underline ml-1"
+            onClick={clearFilters}
+          >
+            Clear filters
+          </button>
+        )}
+
+        <span className="ml-auto text-xs text-slate-400">{rows.length} item{rows.length !== 1 ? 's' : ''}</span>
+      </div>
 
       {/* Legend — 5 buckets */}
       <div className="flex flex-wrap gap-x-5 gap-y-2 items-center bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm text-slate-700">
