@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import { useDeadlines } from '@/lib/useDeadlines'
-import { computePillStatus, PILL_CONFIG, formatDate } from '@/lib/utils'
+import { computePillStatus, PILL_CONFIG, formatDate, formatCurrency } from '@/lib/utils'
 import { BUCKET_COLORS, BUCKETS } from '@/data/workstreams'
 import StatusPill from './StatusPill'
 
@@ -30,6 +30,9 @@ const MONTH_MARKS = [
   { label: 'Sep', pct: toPct('2026-09-01')! },
   { label: 'Oct', pct: toPct('2026-10-01')! },
 ]
+
+// ── Budget baseline — mirrors the Reference-tab committed total ───────────────
+const BUDGET_BASELINE = 8402
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props {
@@ -87,6 +90,43 @@ export default function ProjectPlanTab({ onGoToDeadlines, onGoToWorkstreams }: P
     }),
     [deadlines]
   )
+
+  // ── Progress by workstream: X done / Y total per workstream ─────────────
+  const workstreamProgress = useMemo(() => BUCKETS.map(bucket => ({
+    bucket,
+    workstreams: bucket.workstreams.map(ws => {
+      const rows = deadlines.filter(d => d.workstream === ws.id)
+      const done = rows.filter(d => d.status === 'done').length
+      return { ws, total: rows.length, done }
+    }),
+  })), [deadlines])
+
+  // ── Budget rollup: sum non-null amounts vs BUDGET_BASELINE ──────────────
+  const budget = useMemo(() => {
+    const total = deadlines.reduce((sum, d) => sum + (d.amount ?? 0), 0)
+    const byBucket = BUCKETS.map(b => ({
+      bucket: b,
+      amount: deadlines
+        .filter(d => d.bucket === b.id)
+        .reduce((sum, d) => sum + (d.amount ?? 0), 0),
+    }))
+    return { total, byBucket }
+  }, [deadlines])
+
+  // ── Ownership: count per owner, unassigned count, sorted desc ────────────
+  const ownership = useMemo(() => {
+    const counts: Record<string, number> = {}
+    let unassigned = 0
+    deadlines.forEach(d => {
+      const owner = d.owner?.trim()
+      if (!owner) { unassigned++ }
+      else { counts[owner] = (counts[owner] ?? 0) + 1 }
+    })
+    const owners = Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+    return { owners, unassigned }
+  }, [deadlines])
 
   if (loading) {
     return (
@@ -247,6 +287,173 @@ export default function ProjectPlanTab({ onGoToDeadlines, onGoToWorkstreams }: P
                   </span>
                 </button>
               ))}
+            </div>
+
+            <p className="text-xs text-slate-400 mt-3 px-3">
+              Click any row to open the Deadlines tab.
+            </p>
+          </div>
+        )}
+      </section>
+
+      {/* ── Progress by Workstream ──────────────────────────────────────────── */}
+      <section className="bg-white border border-slate-200 rounded-lg p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-slate-900">Progress by Workstream</h2>
+          <button
+            onClick={onGoToWorkstreams}
+            className="text-xs text-slate-400 hover:text-slate-700 transition-colors underline underline-offset-2"
+          >
+            View Workstreams →
+          </button>
+        </div>
+
+        <div className="space-y-5">
+          {workstreamProgress.map(({ bucket, workstreams }) => (
+            <div key={bucket.id}>
+              {/* Bucket group header */}
+              <div className="flex items-center gap-1.5 mb-2">
+                <span
+                  className="w-2 h-2 rounded-sm flex-shrink-0"
+                  style={{ background: BUCKET_COLORS[bucket.id] }}
+                />
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  {bucket.name}
+                </span>
+              </div>
+
+              {/* Workstream rows */}
+              <div className="space-y-1.5 pl-3.5 border-l-2" style={{ borderColor: BUCKET_COLORS[bucket.id] + '40' }}>
+                {workstreams.map(({ ws, done, total }) => (
+                  <button
+                    key={ws.id}
+                    onClick={onGoToWorkstreams}
+                    className="w-full flex items-center gap-3 group"
+                  >
+                    <span className="w-52 flex-shrink-0 text-xs text-slate-600 text-right truncate group-hover:text-slate-900 transition-colors pr-1">
+                      {ws.name}
+                    </span>
+                    <div className="flex-1 relative h-4 bg-slate-100 rounded overflow-hidden">
+                      {total > 0 && (
+                        <div
+                          className="absolute inset-y-0 left-0 rounded transition-all"
+                          style={{
+                            width: `${(done / total) * 100}%`,
+                            background: BUCKET_COLORS[bucket.id],
+                            opacity: 0.75,
+                          }}
+                        />
+                      )}
+                    </div>
+                    <span className="flex-shrink-0 w-14 text-right text-xs tabular-nums text-slate-400">
+                      {total === 0
+                        ? <span className="italic">0 items</span>
+                        : `${done} / ${total}`
+                      }
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Budget Rollup ────────────────────────────────────────────────────── */}
+      <section className="bg-white border border-slate-200 rounded-lg p-5">
+        <h2 className="font-semibold text-slate-900 mb-4">Budget</h2>
+
+        {/* Committed vs baseline */}
+        <div className="mb-4">
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-2xl font-bold text-slate-900 tabular-nums">
+              {formatCurrency(budget.total)}
+            </span>
+            <span className="text-sm text-slate-400">
+              of {formatCurrency(BUDGET_BASELINE)} baseline committed
+            </span>
+            {budget.total > BUDGET_BASELINE && (
+              <span className="text-xs font-semibold text-red-600 ml-1">over budget</span>
+            )}
+          </div>
+          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${Math.min(100, (budget.total / BUDGET_BASELINE) * 100)}%`,
+                background: budget.total > BUDGET_BASELINE ? '#ef4444' : '#3b82f6',
+              }}
+            />
+          </div>
+          <p className="text-xs text-slate-400 mt-1.5">
+            {budget.total > BUDGET_BASELINE
+              ? `${formatCurrency(budget.total - BUDGET_BASELINE)} over baseline`
+              : `${formatCurrency(BUDGET_BASELINE - budget.total)} remaining`
+            }
+          </p>
+        </div>
+
+        {/* Per-bucket breakdown */}
+        {budget.byBucket.some(b => b.amount > 0) ? (
+          <div className="space-y-1.5 border-t border-slate-100 pt-3">
+            {budget.byBucket.filter(b => b.amount > 0).map(({ bucket, amount }) => (
+              <div key={bucket.id} className="flex items-center gap-2.5">
+                <span
+                  className="w-2 h-2 rounded-sm flex-shrink-0"
+                  style={{ background: BUCKET_COLORS[bucket.id] }}
+                />
+                <span className="flex-1 text-xs text-slate-600 truncate">{bucket.name}</span>
+                <span className="text-xs font-medium text-slate-700 tabular-nums">
+                  {formatCurrency(amount)}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400 italic border-t border-slate-100 pt-3">
+            No amounts recorded yet.
+          </p>
+        )}
+      </section>
+
+      {/* ── Ownership at a Glance ────────────────────────────────────────────── */}
+      <section className="bg-white border border-slate-200 rounded-lg p-5">
+        <h2 className="font-semibold text-slate-900 mb-4">Ownership</h2>
+
+        {ownership.owners.length === 0 && ownership.unassigned === 0 ? (
+          <p className="text-sm text-slate-400 italic">No deadlines found.</p>
+        ) : (
+          <div>
+            <div className="flex items-center gap-4 px-3 pb-2 text-xs font-medium text-slate-400 uppercase tracking-wide border-b border-slate-100">
+              <span className="flex-1">Owner</span>
+              <span className="w-12 text-right">Items</span>
+            </div>
+
+            <div className="divide-y divide-slate-50">
+              {ownership.owners.map(({ name, count }) => (
+                <button
+                  key={name}
+                  onClick={onGoToDeadlines}
+                  className="w-full flex items-center gap-4 px-3 py-2 text-left hover:bg-slate-50 transition-colors rounded"
+                >
+                  <span className="flex-1 text-sm text-slate-700">{name}</span>
+                  <span className="w-12 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                    {count}
+                  </span>
+                </button>
+              ))}
+
+              {ownership.unassigned > 0 && (
+                <button
+                  onClick={onGoToDeadlines}
+                  className="w-full flex items-center gap-4 px-3 py-2 text-left hover:bg-slate-50 transition-colors rounded"
+                >
+                  <span className="flex-1 text-sm text-slate-400 italic">Unassigned</span>
+                  <span className="w-12 text-right text-sm font-semibold text-slate-400 tabular-nums">
+                    {ownership.unassigned}
+                  </span>
+                </button>
+              )}
             </div>
 
             <p className="text-xs text-slate-400 mt-3 px-3">
