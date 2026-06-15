@@ -8,6 +8,11 @@ import StatusPill from './StatusPill'
 import SubtaskPanel from './SubtaskPanel'
 import type { StatusValue, PillStatus, DeadlineType } from '@/types'
 
+// ── Sort severity (Urgent first, then Soon, Upcoming, Passed, undated, Done, N/A) ──
+const PILL_SEVERITY: Record<PillStatus, number> = {
+  urgent: 0, soon: 1, upcoming: 2, passed: 3, tbd: 4, done: 5, na: 6,
+}
+
 // ── Type field config ─────────────────────────────────────────────────────────
 const DEADLINE_TYPES: DeadlineType[] = ['Vendor Deadline', 'Internal Action', 'Milestone']
 
@@ -108,15 +113,13 @@ export default function DeadlinesTab() {
     })
 
     const cmp = (a: typeof rows[0], b: typeof rows[0]) => {
-      if (a.is_critical !== b.is_critical) return a.is_critical ? -1 : 1
-
       let av: string | number | null = null
       let bv: string | number | null = null
       if (sortField === 'due_date')           { av = a.due_date;                   bv = b.due_date }
       else if (sortField === 'approval_date') { av = a.approval_date;              bv = b.approval_date }
       else if (sortField === 'item')          { av = a.item.toLowerCase();         bv = b.item.toLowerCase() }
       else if (sortField === 'owner')         { av = a.owner?.toLowerCase() ?? null; bv = b.owner?.toLowerCase() ?? null }
-      else if (sortField === 'status')        { av = a.status;                     bv = b.status }
+      else if (sortField === 'status')        { av = PILL_SEVERITY[computePillStatus(a.status, a.due_date)]; bv = PILL_SEVERITY[computePillStatus(b.status, b.due_date)] }
       else if (sortField === 'amount')        { av = a.amount;                     bv = b.amount }
       else if (sortField === 'type')          { av = a.type;                       bv = b.type }
 
