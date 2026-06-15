@@ -11,17 +11,6 @@ BUCKETS.forEach(b => b.workstreams.forEach(w => { WS_TO_BUCKET[w.id] = b.id }))
 export type DeadlineUpdate = Partial<Omit<Deadline, 'id' | 'updated_at'>>
 export type SubtaskUpdate = Partial<Pick<Subtask, 'title' | 'done' | 'owner'>>
 
-// Owners are stored in localStorage so they persist without any DB dependency.
-const OWNERS_KEY = 'nacs-owners'
-
-function loadStoredOwners(): string[] {
-  try { return JSON.parse(localStorage.getItem(OWNERS_KEY) ?? '[]') } catch { return [] }
-}
-
-function saveStoredOwners(names: string[]) {
-  localStorage.setItem(OWNERS_KEY, JSON.stringify(names))
-}
-
 export function useDeadlines() {
   const [deadlines, setDeadlines] = useState<Deadline[]>([])
   const [subtasks, setSubtasks] = useState<Subtask[]>([])
@@ -29,23 +18,24 @@ export function useDeadlines() {
   const [loading, setLoading] = useState(true)
 
   const fetchAll = useCallback(async () => {
-    const [dlRes, stRes] = await Promise.all([
+    const [dlRes, stRes, tmRes] = await Promise.all([
       supabase.from('deadlines').select('*')
         .order('is_critical', { ascending: false })
         .order('due_date', { ascending: true, nullsFirst: false }),
       supabase.from('subtasks').select('*')
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true }),
+      supabase.from('team_members').select('name')
+        .order('sort_order', { ascending: true })
+        .order('name',       { ascending: true }),
     ])
     if (dlRes.data) setDeadlines(dlRes.data)
     if (stRes.data) setSubtasks(stRes.data)
+    if (tmRes.data) setOwners(tmRes.data.map((m: { name: string }) => m.name))
     setLoading(false)
   }, [])
 
   useEffect(() => {
-    // Load owners from localStorage on mount
-    setOwners(loadStoredOwners())
-
     fetchAll()
     const channels = [
       supabase.channel('hook-deadlines')
@@ -53,6 +43,9 @@ export function useDeadlines() {
         .subscribe(),
       supabase.channel('hook-subtasks')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'subtasks' }, fetchAll)
+        .subscribe(),
+      supabase.channel('hook-team')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, fetchAll)
         .subscribe(),
     ]
     return () => { channels.forEach(c => supabase.removeChannel(c)) }
@@ -128,22 +121,16 @@ export function useDeadlines() {
   const subtasksFor = (deadlineId: string) =>
     subtasks.filter(s => s.deadline_id === deadlineId)
 
-  const addOwner = (name: string) => {
+  const addOwner = async (name: string) => {
     const trimmed = name.trim()
-    if (!trimmed) return
-    setOwners(prev => {
-      const next = prev.includes(trimmed) ? prev : [...prev, trimmed]
-      saveStoredOwners(next)
-      return next
-    })
+    if (!trimmed || owners.includes(trimmed)) return
+    setOwners(prev => [...prev, trimmed])
+    await supabase.from('team_members').insert({ name: trimmed })
   }
 
-  const removeOwner = (name: string) => {
-    setOwners(prev => {
-      const next = prev.filter(o => o !== name)
-      saveStoredOwners(next)
-      return next
-    })
+  const removeOwner = async (name: string) => {
+    setOwners(prev => prev.filter(o => o !== name))
+    await supabase.from('team_members').delete().eq('name', name)
   }
 
   return {
