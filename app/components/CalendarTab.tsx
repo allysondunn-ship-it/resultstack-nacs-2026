@@ -134,12 +134,6 @@ function DetailModal({ ev, onClose, onGoToDeadlines }: {
               <dd className="text-slate-700">{formatCurrency(dl.amount)}</dd>
             </div>
           )}
-          {dl.category && (
-            <div>
-              <dt className="text-xs text-slate-400 uppercase tracking-wide mb-0.5">Category</dt>
-              <dd className="text-slate-700">{dl.category}</dd>
-            </div>
-          )}
         </dl>
 
         {dl.notes && (

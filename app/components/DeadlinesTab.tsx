@@ -54,7 +54,6 @@ const EMPTY_FORM = {
   workstream: 1,
   owner: '',
   amount: '',
-  category: '',
   is_critical: false,
   notes: '',
 }
@@ -86,7 +85,7 @@ export default function DeadlinesTab() {
   const noteTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [noteStatus, setNoteStatus] = useState<Record<string, 'saving' | 'saved'>>({})
 
-  const [editingDetail, setEditingDetail] = useState<{ id: string; field: 'approval_date' | 'category' | 'amount' } | null>(null)
+  const [editingDetail, setEditingDetail] = useState<{ id: string; field: 'approval_date' | 'amount' } | null>(null)
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -163,11 +162,10 @@ export default function DeadlinesTab() {
     else if (field === 'approval_date') await updateDeadline(id, { approval_date: value || null })
   }
 
-  const commitDetail = async (id: string, field: 'approval_date' | 'category' | 'amount', value: string) => {
+  const commitDetail = async (id: string, field: 'approval_date' | 'amount', value: string) => {
     setEditingDetail(null)
     if (field === 'amount') await updateDeadline(id, { amount: value ? parseFloat(value) : null })
     else if (field === 'approval_date') await updateDeadline(id, { approval_date: value || null })
-    else if (field === 'category') await updateDeadline(id, { category: value || null })
   }
 
   const handleNoteChange = (id: string, value: string) => {
@@ -197,7 +195,6 @@ export default function DeadlinesTab() {
       workstream: form.workstream,
       owner: form.owner || null,
       amount: form.amount ? parseFloat(form.amount) : null,
-      category: form.category || null,
       is_critical: form.is_critical,
       notes: form.notes || null,
     })
@@ -351,12 +348,6 @@ export default function DeadlinesTab() {
                 className="w-full text-sm border border-slate-200 rounded px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-slate-400">
                 {DEADLINE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
-            </div>
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">Category</label>
-              <input type="text" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                placeholder="e.g. Payment, Submission…"
-                className="w-full text-sm border border-slate-200 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-400" />
             </div>
             <div>
               <label className="block text-xs text-slate-500 mb-1">Workstream</label>
@@ -653,35 +644,19 @@ export default function DeadlinesTab() {
                               value={getNoteValue(d.id, d.notes)}
                               onChange={e => handleNoteChange(d.id, e.target.value)}
                             />
-                            <div className="mt-2 grid grid-cols-2 gap-2">
-                              <div>
-                                <span className="block text-xs text-slate-400 mb-0.5">Amount</span>
-                                {editingDetail?.id === d.id && editingDetail.field === 'amount' ? (
-                                  <input autoFocus type="number" min="0" step="0.01"
-                                    className="w-full text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none"
-                                    defaultValue={d.amount ?? ''}
-                                    onBlur={e => commitDetail(d.id, 'amount', e.target.value)}
-                                    onKeyDown={e => { if (e.key === 'Enter') commitDetail(d.id, 'amount', (e.target as HTMLInputElement).value) }} />
-                                ) : (
-                                  <button className="text-sm text-slate-700 hover:underline" onClick={() => setEditingDetail({ id: d.id, field: 'amount' })}>
-                                    {d.amount != null ? formatCurrency(d.amount) : <span className="text-slate-300 italic">—</span>}
-                                  </button>
-                                )}
-                              </div>
-                              <div>
-                                <span className="block text-xs text-slate-400 mb-0.5">Category</span>
-                                {editingDetail?.id === d.id && editingDetail.field === 'category' ? (
-                                  <input autoFocus type="text"
-                                    className="w-full text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none"
-                                    defaultValue={d.category ?? ''}
-                                    onBlur={e => commitDetail(d.id, 'category', e.target.value)}
-                                    onKeyDown={e => { if (e.key === 'Enter') commitDetail(d.id, 'category', (e.target as HTMLInputElement).value) }} />
-                                ) : (
-                                  <button className="text-sm text-slate-700 hover:underline" onClick={() => setEditingDetail({ id: d.id, field: 'category' })}>
-                                    {d.category || <span className="text-slate-300 italic">—</span>}
-                                  </button>
-                                )}
-                              </div>
+                            <div className="mt-2">
+                              <span className="block text-xs text-slate-400 mb-0.5">Amount</span>
+                              {editingDetail?.id === d.id && editingDetail.field === 'amount' ? (
+                                <input autoFocus type="number" min="0" step="0.01"
+                                  className="w-full text-sm border border-slate-300 rounded px-1.5 py-1 focus:outline-none"
+                                  defaultValue={d.amount ?? ''}
+                                  onBlur={e => commitDetail(d.id, 'amount', e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') commitDetail(d.id, 'amount', (e.target as HTMLInputElement).value) }} />
+                              ) : (
+                                <button className="text-sm text-slate-700 hover:underline" onClick={() => setEditingDetail({ id: d.id, field: 'amount' })}>
+                                  {d.amount != null ? formatCurrency(d.amount) : <span className="text-slate-300 italic">—</span>}
+                                </button>
+                              )}
                             </div>
                           </div>
 
