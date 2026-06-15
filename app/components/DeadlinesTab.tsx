@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef } from 'react'
 import { useDeadlines } from '@/lib/useDeadlines'
 import { computePillStatus, PILL_CONFIG, STATUS_LABELS, formatDate, formatCurrency } from '@/lib/utils'
-import { BUCKETS, BUCKET_COLORS } from '@/data/workstreams'
+import { BUCKETS } from '@/data/workstreams'
 import StatusPill from './StatusPill'
 import SubtaskPanel from './SubtaskPanel'
 import type { StatusValue, PillStatus, DeadlineType } from '@/types'
@@ -24,15 +24,6 @@ const TYPE_SHORT: Record<DeadlineType, string> = {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function BucketDot({ bucket }: { bucket: number }) {
-  return (
-    <span
-      style={{ background: BUCKET_COLORS[bucket] ?? '#94a3b8' }}
-      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-    />
-  )
-}
-
 function TrashIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -296,16 +287,6 @@ export default function DeadlinesTab() {
           </div>
         </div>
 
-        {/* Bucket legend */}
-        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-50 pt-2">
-          {BUCKETS.map(b => (
-            <span key={b.id} className="flex items-center gap-1.5 text-xs text-slate-400">
-              <BucketDot bucket={b.id} />
-              B{b.id} {b.name}
-            </span>
-          ))}
-        </div>
-
         {/* Team manager */}
         {showTeamManager && (
           <div className="border-t border-slate-100 pt-3">
@@ -478,11 +459,11 @@ export default function DeadlinesTab() {
               const expanded = expandedRows.has(d.id)
               return (
                 <>
-                  <tr key={d.id} className={`group hover:bg-slate-50 transition-colors ${d.is_critical ? 'bg-red-50/30' : ''}`}>
+                  <tr key={d.id} className="group hover:bg-slate-50 transition-colors">
 
-                    {/* Flag */}
-                    <td className="px-3 py-3 text-center text-sm">
-                      {d.is_critical && '🚩'}
+                    {/* Critical indicator */}
+                    <td className="px-3 py-3 text-center">
+                      {d.is_critical && <span className="text-amber-400 font-bold text-sm leading-none" title="Critical">★</span>}
                     </td>
 
                     {/* Status */}
@@ -557,10 +538,9 @@ export default function DeadlinesTab() {
                       )}
                     </td>
 
-                    {/* Workstream tag with bucket dot */}
+                    {/* Workstream */}
                     <td className="px-3 py-3">
-                      <span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-600">
-                        <BucketDot bucket={d.bucket} />
+                      <span className="px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-600">
                         W{d.workstream}
                       </span>
                     </td>
@@ -694,10 +674,10 @@ export default function DeadlinesTab() {
           const subs = subtasksFor(d.id)
           const expanded = expandedRows.has(d.id)
           return (
-            <div key={d.id} className={`bg-white border rounded-lg p-4 space-y-2.5 ${d.is_critical ? 'border-red-200' : 'border-slate-200'}`}>
+            <div key={d.id} className="bg-white border border-slate-200 rounded-lg p-4 space-y-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  {d.is_critical && <span>🚩</span>}
+                  {d.is_critical && <span className="text-amber-400 font-bold text-sm leading-none" title="Critical">★</span>}
                   <StatusPill status={d.status} dueDate={d.due_date} />
                   {d.due_date
                     ? <span className="text-xs text-slate-400">{formatDate(d.due_date)}</span>
@@ -707,8 +687,7 @@ export default function DeadlinesTab() {
                     {TYPE_SHORT[d.type] ?? d.type}
                   </span>
                 </div>
-                <span className="inline-flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded flex-shrink-0">
-                  <BucketDot bucket={d.bucket} />
+                <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded flex-shrink-0">
                   W{d.workstream}
                 </span>
               </div>
