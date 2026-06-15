@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useMemo, useRef } from 'react'
-import { supabase } from '@/lib/supabase'
 import { useDeadlines } from '@/lib/useDeadlines'
 import { computePillStatus, PILL_CONFIG, STATUS_LABELS, formatDate, formatCurrency } from '@/lib/utils'
 import { BUCKETS, BUCKET_COLORS } from '@/data/workstreams'
@@ -67,6 +66,7 @@ export default function DeadlinesTab() {
     updateDeadline, addDeadline, deleteDeadline,
     addSubtask, updateSubtask, deleteSubtask,
     subtasksFor,
+    addOwner, removeOwner,
   } = useDeadlines()
 
   type SortField = 'due_date' | 'approval_date' | 'item' | 'owner' | 'status' | 'amount' | 'type'
@@ -206,15 +206,10 @@ export default function DeadlinesTab() {
     setSaving(false)
   }
 
-  const addOwner = async () => {
-    const name = newName.trim()
-    if (!name) return
-    await supabase.from('team_members').insert({ name, sort_order: owners.length + 1 })
+  const handleAddOwner = () => {
+    addOwner(newName)
     setNewName('')
     newNameInputRef.current?.focus()
-  }
-  const removeOwner = async (name: string) => {
-    await supabase.from('team_members').delete().eq('name', name)
   }
 
   if (loading) {
@@ -325,7 +320,7 @@ export default function DeadlinesTab() {
                   <button onClick={() => removeOwner(name)} className="text-slate-400 hover:text-red-500 transition-colors ml-0.5 text-xs">×</button>
                 </span>
               ))}
-              <form onSubmit={e => { e.preventDefault(); addOwner() }} className="flex items-center gap-1.5">
+              <form onSubmit={e => { e.preventDefault(); handleAddOwner() }} className="flex items-center gap-1.5">
                 <input ref={newNameInputRef} type="text" placeholder="Add name…" value={newName}
                   onChange={e => setNewName(e.target.value)}
                   className="text-sm border border-slate-200 rounded px-2 py-1 w-28 focus:outline-none focus:ring-1 focus:ring-slate-400" />
