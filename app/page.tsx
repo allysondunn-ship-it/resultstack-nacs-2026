@@ -7,6 +7,7 @@ const DeadlinesTab = dynamic(() => import('./components/DeadlinesTab'), { ssr: f
 const WorkstreamsTab = dynamic(() => import('./components/WorkstreamsTab'), { ssr: false })
 const GanttTab = dynamic(() => import('./components/GanttTab'), { ssr: false })
 const CalendarTab = dynamic(() => import('./components/CalendarTab'), { ssr: false })
+const ProjectPlanTab = dynamic(() => import('./components/ProjectPlanTab'), { ssr: false })
 const DecisionsTab = dynamic(() => import('./components/DecisionsTab'), { ssr: false })
 const ReferenceTab = dynamic(() => import('./components/ReferenceTab'), { ssr: false })
 
@@ -15,6 +16,7 @@ const TABS = [
   { id: 'workstreams', label: 'Workstreams' },
   { id: 'gantt', label: 'Gantt' },
   { id: 'calendar', label: 'Calendar' },
+  { id: 'project-plan', label: 'Project Plan' },
   { id: 'decisions', label: 'Decisions' },
   { id: 'reference', label: 'Reference' },
 ] as const
@@ -79,6 +81,7 @@ export default function Home() {
         {activeTab === 'workstreams' && <WorkstreamsTab />}
         {activeTab === 'gantt'       && <GanttTab />}
         {activeTab === 'calendar'    && <CalendarTab onGoToDeadlines={() => setActiveTab('deadlines')} />}
+        {activeTab === 'project-plan' && <ProjectPlanTab onGoToDeadlines={() => setActiveTab('deadlines')} onGoToWorkstreams={() => setActiveTab('workstreams')} />}
         {activeTab === 'decisions'   && <DecisionsTab />}
         {activeTab === 'reference'   && <ReferenceTab />}
       </main>
