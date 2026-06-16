@@ -73,7 +73,6 @@ export function useDeadlines() {
       approval_date: data.approval_date || null,
       owner: data.owner || null,
       amount: data.amount ?? null,
-      category: data.category || null,
       notes: data.notes || null,
     }
     const { data: inserted, error } = await supabase.from('deadlines').insert(row).select().single()
