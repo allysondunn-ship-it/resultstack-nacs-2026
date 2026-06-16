@@ -641,6 +641,17 @@ export default function DeadlinesTab() {
                                 </button>
                               )}
                             </div>
+                            <div className="mt-2">
+                              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={d.committed}
+                                  onChange={() => updateDeadline(d.id, { committed: !d.committed })}
+                                  className="rounded border-slate-300 text-emerald-500 focus:ring-emerald-400"
+                                />
+                                Committed
+                              </label>
+                            </div>
                           </div>
 
                           {/* Right: subtasks */}

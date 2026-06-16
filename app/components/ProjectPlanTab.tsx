@@ -31,9 +31,6 @@ const MONTH_MARKS = [
   { label: 'Oct', pct: toPct('2026-10-01')! },
 ]
 
-// ── Budget baseline — mirrors the Reference-tab committed total ───────────────
-const BUDGET_BASELINE = 8402
-
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props {
   onGoToDeadlines: () => void
@@ -101,16 +98,21 @@ export default function ProjectPlanTab({ onGoToDeadlines, onGoToWorkstreams }: P
     }),
   })), [deadlines])
 
-  // ── Budget rollup: sum non-null amounts vs BUDGET_BASELINE ──────────────
+  // ── Budget rollup: committed vs under-decision sums ──────────────────────
   const budget = useMemo(() => {
-    const total = deadlines.reduce((sum, d) => sum + (d.amount ?? 0), 0)
+    const committed = deadlines
+      .filter(d => d.committed)
+      .reduce((sum, d) => sum + (d.amount ?? 0), 0)
+    const underDecision = deadlines
+      .filter(d => !d.committed)
+      .reduce((sum, d) => sum + (d.amount ?? 0), 0)
     const byBucket = BUCKETS.map(b => ({
       bucket: b,
       amount: deadlines
         .filter(d => d.bucket === b.id)
         .reduce((sum, d) => sum + (d.amount ?? 0), 0),
     }))
-    return { total, byBucket }
+    return { committed, underDecision, byBucket }
   }, [deadlines])
 
   // ── Ownership: count per owner, unassigned count, sorted desc ────────────
@@ -363,34 +365,16 @@ export default function ProjectPlanTab({ onGoToDeadlines, onGoToWorkstreams }: P
       <section className="bg-white border border-slate-200 rounded-lg p-5">
         <h2 className="font-semibold text-slate-900 mb-4">Budget</h2>
 
-        {/* Committed vs baseline */}
-        <div className="mb-4">
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-2xl font-bold text-slate-900 tabular-nums">
-              {formatCurrency(budget.total)}
-            </span>
-            <span className="text-sm text-slate-400">
-              of {formatCurrency(BUDGET_BASELINE)} baseline committed
-            </span>
-            {budget.total > BUDGET_BASELINE && (
-              <span className="text-xs font-semibold text-red-600 ml-1">over budget</span>
-            )}
+        {/* Committed vs under-decision */}
+        <div className="mb-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-600">Committed</span>
+            <span className="text-sm font-bold text-slate-900 tabular-nums">{formatCurrency(budget.committed)}</span>
           </div>
-          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full"
-              style={{
-                width: `${Math.min(100, (budget.total / BUDGET_BASELINE) * 100)}%`,
-                background: budget.total > BUDGET_BASELINE ? '#ef4444' : '#3b82f6',
-              }}
-            />
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-600">Under decision</span>
+            <span className="text-sm font-bold text-slate-900 tabular-nums">{formatCurrency(budget.underDecision)}</span>
           </div>
-          <p className="text-xs text-slate-400 mt-1.5">
-            {budget.total > BUDGET_BASELINE
-              ? `${formatCurrency(budget.total - BUDGET_BASELINE)} over baseline`
-              : `${formatCurrency(BUDGET_BASELINE - budget.total)} remaining`
-            }
-          </p>
         </div>
 
         {/* Per-bucket breakdown */}

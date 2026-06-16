@@ -13,6 +13,7 @@ export interface Deadline {
   amount: number | null
   status: StatusValue
   is_critical: boolean
+  committed: boolean
   notes: string | null
   category: string | null
   updated_at: string
