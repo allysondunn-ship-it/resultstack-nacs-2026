@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   MARITZ_PRODUCTS, MARITZ_ADDONS, MARITZ_CONTACT,
   COX_PRODUCTS, COX_CONTACT,
@@ -8,10 +8,51 @@ import {
   COLLATERAL_VENDORS,
   BOOTH_SPECS,
 } from '@/data/reference'
+import { supabase } from '@/lib/supabase'
+
+type BudgetItem = { id: string; name: string; amount: number; created_at: string }
 
 export default function ReferenceTab() {
   const [search, setSearch] = useState('')
   const [openSection, setOpenSection] = useState<string | null>(null)
+
+  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>([])
+  const [newName, setNewName] = useState('')
+  const [newAmount, setNewAmount] = useState('')
+
+  const fetchBudgetItems = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('budget_items')
+      .select('*')
+      .order('created_at', { ascending: true })
+    if (!error && data) setBudgetItems(data)
+  }, [])
+
+  useEffect(() => {
+    fetchBudgetItems()
+    const channel = supabase
+      .channel('budget-items-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_items' }, fetchBudgetItems)
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [fetchBudgetItems])
+
+  const addBudgetItem = async () => {
+    const parsed = parseFloat(newAmount)
+    if (!newName.trim() || isNaN(parsed)) return
+    await supabase.from('budget_items').insert({ name: newName.trim(), amount: parsed })
+    setNewName('')
+    setNewAmount('')
+  }
+
+  const deleteBudgetItem = async (id: string) => {
+    await supabase.from('budget_items').delete().eq('id', id)
+  }
+
+  const budgetTotal = budgetItems.reduce((sum, item) => sum + item.amount, 0)
+
+  const formatCurrency = (n: number) =>
+    '$' + n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 
   const s = search.toLowerCase()
 
@@ -228,6 +269,68 @@ export default function ReferenceTab() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Budget Builder */}
+      <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+        <SectionHeader id="budget" title="Budget Builder" />
+        {openSection === 'budget' && (
+          <div className="p-4 space-y-3">
+            {budgetItems.length === 0 ? (
+              <p className="text-sm text-slate-400 italic">No budget items yet — add one below.</p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {budgetItems.map(item => (
+                  <div key={item.id} className="flex items-center justify-between py-2 gap-3">
+                    <span className="text-sm text-slate-800 flex-1 min-w-0 truncate">{item.name}</span>
+                    <span className="text-sm font-medium text-slate-900 tabular-nums">{formatCurrency(item.amount)}</span>
+                    <button
+                      onClick={() => deleteBudgetItem(item.id)}
+                      className="text-slate-300 hover:text-red-400 transition-colors text-base leading-none flex-shrink-0"
+                      title="Remove"
+                      aria-label="Remove"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add row */}
+            <div className="flex gap-2 pt-1">
+              <input
+                type="text"
+                placeholder="Item name"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addBudgetItem()}
+                className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-slate-300"
+              />
+              <input
+                type="number"
+                placeholder="Amount"
+                value={newAmount}
+                onChange={e => setNewAmount(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addBudgetItem()}
+                className="w-28 px-2.5 py-1.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-slate-300"
+              />
+              <button
+                onClick={addBudgetItem}
+                disabled={!newName.trim() || isNaN(parseFloat(newAmount))}
+                className="px-3 py-1.5 text-sm font-medium bg-slate-800 text-white rounded hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Add
+              </button>
+            </div>
+
+            {/* Total */}
+            <div className="flex justify-between items-center border-t border-slate-200 pt-3">
+              <span className="font-bold text-slate-900 text-sm">Total</span>
+              <span className="font-bold text-slate-900 text-sm tabular-nums">{formatCurrency(budgetTotal)}</span>
             </div>
           </div>
         )}
